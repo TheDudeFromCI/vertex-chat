@@ -1,6 +1,5 @@
 import { escapeHtml } from '../core/text';
 import type { ChatMessage } from '../types/domain';
-import { requiredElementIn } from './utils';
 
 export type MessageListHandlers = {
     onCopyMessage: (messageId: string) => void;
@@ -44,7 +43,7 @@ export class MessageList {
         });
     }
 
-    render(title: string, messages: ChatMessage[]): void {
+    render(messages: ChatMessage[]): void {
         this.root.innerHTML = '';
 
         for (const message of messages) {

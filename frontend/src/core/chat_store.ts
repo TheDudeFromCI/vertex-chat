@@ -7,8 +7,6 @@ import type {
     StoredMessage,
 } from '../types/domain';
 
-const logKey = 'vertex.log';
-
 export class ChatStore {
     private conversations: ConversationMeta[];
     private readonly messageStore: Record<string, ChatMessage[]>;

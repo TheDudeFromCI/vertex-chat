@@ -1,5 +1,5 @@
 import type { SessionSnapshot } from '../types/domain';
-import type { ClientMessage, HelloMessage, OutboundMessage, ServerEvent } from '../types/protocol';
+import type { ClientMessage, OutboundMessage, ServerEvent } from '../types/protocol';
 import { newRequestId } from './client_identity';
 
 export type ConnectionVariant = 'connecting' | 'connected' | 'reconnecting';

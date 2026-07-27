@@ -6,7 +6,6 @@ import { MessageList, type MessageListHandlers } from './message_list';
 import { ChatComposer, type ComposerHandlers } from './chat_composer';
 import { ToolsPanel, type ToolsHandlers } from './tools_panel';
 import { ParticipantsPanel, type ParticipantsHandlers } from './participants_panel';
-import type { SessionSnapshotLike } from './utils';
 
 export type ChatViewHandlers = {
   onSelectConversation: (conversationId: string) => void;
@@ -129,7 +128,7 @@ export class ChatView {
 
   renderMessages(title: string, messages: ChatMessage[]): void {
     this.header.setChatTitle(title);
-    this.messageList.render(title, messages);
+    this.messageList.render(messages);
   }
 
   renderTools(toolsCatalog: ToolDefinition[]): void {
