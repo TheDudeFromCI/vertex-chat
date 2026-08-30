@@ -137,6 +137,10 @@ export class LLMService {
                     if (line === '[DONE]') break
 
                     const data = JSON.parse(line)
+                    if (!data['choices'] || !data['choices'][0]) {
+                        console.error('Invalid response format:', data)
+                        continue
+                    }
 
                     const thinkingFragment = data['choices'][0]['delta']['reasoning_content'] || ''
                     if (thinkingFragment) appendFragment(thinkingFragment, 'thinking')

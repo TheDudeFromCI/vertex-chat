@@ -2,7 +2,7 @@ import '../css/chatHistory.css'
 import type { Conversation, Message, MessageContent, Persona, Uuid } from 'vertex-common'
 
 import type { App } from '../App.js'
-import { fetchConversation, fetchPersona } from '../api/ConversationsAPI'
+import { fetchConversation } from '../api/ConversationsAPI'
 
 import MarkdownIt from 'markdown-it'
 
@@ -239,7 +239,7 @@ export class ChatHistory {
 
         for (const message of conversation.messages) {
             const isLeftAligned = message.sender !== this.app.userId
-            const persona = await this.fetchPersona(message.sender)
+            const persona = await this.app.getPersona(message.sender)
             if (!persona) {
                 this.messages.push(
                     new ChatMessage(message.id, message.content, DEFAULT_PROFILE_PICTURE, 'System', false),
@@ -256,21 +256,6 @@ export class ChatHistory {
         }
     }
 
-    private async fetchPersona(personaId: Uuid): Promise<Persona | null> {
-        if (this.personaCache.has(personaId)) {
-            return this.personaCache.get(personaId) ?? null
-        }
-
-        try {
-            const persona = await fetchPersona(personaId)
-            this.personaCache.set(personaId, persona)
-            return persona
-        } catch (error) {
-            this.personaCache.set(personaId, null)
-            return null
-        }
-    }
-
     private async fetchActiveConversation(): Promise<Conversation> {
         const conversationId = this.app.conversationId
 
@@ -284,7 +269,7 @@ export class ChatHistory {
     async appendMessage(message: Message): Promise<void> {
         const isLeftAligned = message.sender !== this.app.userId
 
-        const persona = await this.fetchPersona(message.sender)
+        const persona = await this.app.getPersona(message.sender)
         const avatarUrl = persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE
         const personaName = persona?.name ?? 'System'
         const chatMessage = new ChatMessage(message.id, message.content, avatarUrl, personaName, isLeftAligned)

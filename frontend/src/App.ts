@@ -1,17 +1,20 @@
-import type { Message, MessageContent, Uuid } from 'vertex-common'
+import type { Message, MessageContent, Persona, Uuid } from 'vertex-common'
 import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
 import { Header } from './ui/Header.js'
 import { createMessage, updateMessage } from './api/ConversationsAPI.js'
-import { generateChatCompletionRequest } from './impl/Chat.js'
-import { generateMessageContent } from './api/LLM.js'
+import { generateMessageContent } from './api/ChatGenerationAPI.js'
+import { ChatManager } from './impl/Chat.js'
+import { PersonaCache } from './impl/Personas.js'
 
 export class App {
     private readonly header: Header
     private readonly chatHistory: ChatHistory
     private readonly workspaces: Workspaces
     private readonly contextPanel: ContextPanel
+    private readonly personaCache: PersonaCache
+    private readonly chatManager: ChatManager
     private _userId: Uuid | null = null
     private _conversationId: Uuid | null = null
 
@@ -20,6 +23,8 @@ export class App {
         this.chatHistory = new ChatHistory(this)
         this.workspaces = new Workspaces(this)
         this.contextPanel = new ContextPanel()
+        this.personaCache = new PersonaCache()
+        this.chatManager = new ChatManager(this)
     }
 
     build(): HTMLDivElement {
@@ -71,7 +76,7 @@ export class App {
 
     async generateAgentMessage(conversationId: Uuid, agentId: Uuid): Promise<void> {
         const messagePlaceholder = await this.sendMessage(conversationId, agentId, [])
-        const request = await generateChatCompletionRequest(conversationId, agentId)
+        const request = await this.chatManager.generateChatCompletionRequest(conversationId, agentId)
 
         const callback = async (messageContent: MessageContent) => {
             // await updateMessage(messagePlaceholder.id, messageContent)
@@ -89,7 +94,12 @@ export class App {
     }
 
     async reloadPersonas(): Promise<void> {
+        await this.personaCache.reloadAllPersonas()
         await this.header.reloadPersonas()
+    }
+
+    async getPersona(id: Uuid): Promise<Persona | null> {
+        return await this.personaCache.getPersona(id)
     }
 
     get userId(): Uuid | null {
@@ -98,5 +108,9 @@ export class App {
 
     get conversationId(): Uuid | null {
         return this._conversationId
+    }
+
+    get personaList(): Readonly<Persona[]> {
+        return this.personaCache.list
     }
 }

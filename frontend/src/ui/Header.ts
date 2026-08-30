@@ -1,6 +1,6 @@
 import '../css/header.css'
 
-import type { Persona, Uuid } from 'vertex-common'
+import type { Uuid } from 'vertex-common'
 import type { App } from '../App.ts'
 
 export class Header {
@@ -30,7 +30,10 @@ export class Header {
     }
 
     async reloadPersonas(): Promise<void> {
-        await this.fetchPersonas()
+        this.personaCache.clear()
+        for (const persona of this.app.personaList) {
+            this.personaCache.set(persona.name, persona.id)
+        }
 
         if (this.userSelector) {
             this.userSelector.replaceChildren()
@@ -46,26 +49,6 @@ export class Header {
 
             this.userSelector.value =
                 Array.from(this.personaCache.entries()).find(([_, id]) => id === this.app.userId)?.[0] || ''
-        }
-    }
-
-    private async fetchPersonas(): Promise<void> {
-        this.personaCache.clear()
-
-        try {
-            const response = await fetch('/api/personas')
-            if (!response.ok) {
-                const errorResponse = await response.json()
-                console.error('Failed to fetch users:', errorResponse['error'])
-                return
-            }
-
-            const personas = (await response.json()) as Persona[]
-            for (const persona of personas) {
-                this.personaCache.set(persona.name, persona.id)
-            }
-        } catch (error) {
-            console.error('Failed to fetch users', error)
         }
     }
 }

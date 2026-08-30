@@ -1,57 +1,67 @@
 import type { ChatCompletionMessage, ChatCompletionRequest, Uuid } from 'vertex-common'
-import { fetchConversation, fetchPersona } from '../api/ConversationsAPI'
+import { fetchConversation } from '../api/ConversationsAPI'
+import type { App } from '../App'
 
-export async function generateChatCompletionRequest(
-    conversationId: Uuid,
-    agentId: Uuid,
-): Promise<ChatCompletionRequest> {
-    const conversation = await fetchConversation(conversationId)
-    const agent = await fetchPersona(agentId)
-    const messages: ChatCompletionMessage[] = []
+export class ChatManager {
+    private readonly app: App
 
-    const personaCache = new Map<Uuid, string>()
+    constructor(app: App) {
+        this.app = app
+    }
 
-    const getPersonaName = async (personaId: Uuid): Promise<string> => {
-        if (personaCache.has(personaId)) {
-            return personaCache.get(personaId)!
+    async generateChatCompletionRequest(conversationId: Uuid, agentId: Uuid): Promise<ChatCompletionRequest> {
+        const conversation = await fetchConversation(conversationId)
+        const agent = await this.app.getPersona(agentId)
+        const messages: ChatCompletionMessage[] = []
+
+        if (!agent) {
+            throw new Error(`Agent with ID ${agentId} not found`)
         }
 
-        const persona = await fetchPersona(personaId)
-        personaCache.set(personaId, persona.name)
-        return persona.name
-    }
+        const getPersonaName = async (personaId: Uuid): Promise<string> => {
+            const persona = await this.app.getPersona(personaId)
+            if (!persona) return 'Unknown'
+            return persona.name
+        }
 
-    for (const msg of conversation.messages) {
-        if (msg.sender === agentId) {
-            let text = ''
-            let thinking = ''
+        for (const msg of conversation.messages) {
+            if (msg.sender === agentId) {
+                let text = ''
+                let thinking = ''
 
-            for (const block of msg.content) {
-                if (block.type === 'text') {
-                    if (text) text += '\n'
-                    text += block.content
-                } else if (block.type === 'thinking') {
-                    if (thinking) thinking += '\n'
-                    thinking += block.content
+                for (const block of msg.content) {
+                    if (block.type === 'text') {
+                        if (text) text += '\n'
+                        text += block.content
+                    } else if (block.type === 'thinking') {
+                        if (thinking) thinking += '\n'
+                        thinking += block.content
+                    }
                 }
-            }
 
-            messages.push({ role: 'assistant', content: text, thinking: thinking ?? null })
-        } else {
-            const name = await getPersonaName(msg.sender)
+                text = text.trim()
+                thinking = thinking.trim()
+                if (!text && !thinking) continue
 
-            for (const block of msg.content) {
-                if (block.type === 'text') {
-                    messages.push({ role: 'user', content: `${name}: ${block.content}` })
+                messages.push({ role: 'assistant', content: text, thinking: thinking ?? null })
+            } else {
+                const name = await getPersonaName(msg.sender)
+
+                for (const block of msg.content) {
+                    if (block.type === 'text') {
+                        const content = block.content.trim()
+                        if (!content) continue
+                        messages.push({ role: 'user', content: `${name}: ${content}` })
+                    }
                 }
             }
         }
-    }
 
-    const request: ChatCompletionRequest = {
-        prompt: agent.prompt,
-        messages,
-    }
+        const request: ChatCompletionRequest = {
+            prompt: agent.prompt,
+            messages,
+        }
 
-    return request
+        return request
+    }
 }

@@ -1,4 +1,4 @@
-import type { Conversation, Message, MessageContent, Persona, Uuid } from 'vertex-common'
+import type { Conversation, Message, MessageContent, Uuid } from 'vertex-common'
 
 export async function fetchConversation(uuid: Uuid): Promise<Conversation> {
     const response = await fetch(`/api/conversations/${uuid}`)
@@ -7,15 +7,6 @@ export async function fetchConversation(uuid: Uuid): Promise<Conversation> {
     }
     const data = await response.json()
     return data as Conversation
-}
-
-export async function fetchPersona(uuid: Uuid): Promise<Persona> {
-    const response = await fetch(`/api/personas/${uuid}`)
-    if (!response.ok) {
-        throw new Error(`Failed to fetch persona: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data as Persona
 }
 
 export async function createMessage(
