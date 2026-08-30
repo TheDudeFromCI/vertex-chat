@@ -1,0 +1,69 @@
+import type { Conversation, Message, MessageContent, Persona, Uuid } from 'vertex-common'
+
+export async function fetchConversation(uuid: Uuid): Promise<Conversation> {
+    const response = await fetch(`/api/conversations/${uuid}`)
+    if (!response.ok) {
+        throw new Error(`Failed to fetch conversations: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data as Conversation
+}
+
+export async function fetchPersona(uuid: Uuid): Promise<Persona> {
+    const response = await fetch(`/api/personas/${uuid}`)
+    if (!response.ok) {
+        throw new Error(`Failed to fetch persona: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data as Persona
+}
+
+export async function createMessage(
+    conversationId: Uuid,
+    sender: Uuid,
+    content: MessageContent,
+    metadata?: Record<string, unknown>,
+): Promise<Message> {
+    const response = await fetch(`/api/messages/create`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            sender,
+            conversationId,
+            content,
+            metadata,
+        }),
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to create message: ${errorResponse['error']}`)
+    }
+
+    const data = await response.json()
+    return data as Message
+}
+
+export async function updateMessage(
+    messageId: Uuid,
+    content?: MessageContent,
+    metadata?: Record<string, unknown>,
+): Promise<void> {
+    const response = await fetch(`/api/messages/${messageId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            content,
+            metadata,
+        }),
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to update message: ${errorResponse['error']}`)
+    }
+}

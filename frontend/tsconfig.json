@@ -8,10 +8,21 @@
         "jsx": "preserve",
         "noEmit": true,
         "skipLibCheck": true,
+
+        // Style Options
+        "noImplicitReturns": true,
+        "noImplicitOverride": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+        "noPropertyAccessFromIndexSignature": true,
+        "allowSyntheticDefaultImports": true,
+
+        // Recommended Options
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "noUncheckedSideEffectImports": true,
+        "moduleDetection": "force"
     },
-    "include": [
-        "src"
-    ]
+    "include": ["src"]
 }

@@ -1,6 +1,11 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vite'
 
 export default defineConfig({
+    build: {
+        rollupOptions: {
+            input: ['index.html', '404.html'],
+        },
+    },
     server: {
         host: '0.0.0.0',
         port: 5173,
@@ -9,11 +14,6 @@ export default defineConfig({
                 target: 'http://localhost:8000',
                 changeOrigin: true,
             },
-            '/ws': {
-                target: 'http://localhost:8000',
-                ws: true,
-                changeOrigin: true,
-            },
         },
     },
-});
+})

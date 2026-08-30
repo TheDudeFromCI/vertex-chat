@@ -48,7 +48,13 @@ Open the local address shown in your terminal, and you're ready to go!
 
 ## Development
 
-To do.
+To run the project in development mode, run the `dev.sh` script. This will compile and run the backend server, while the frontend will listen for file changes and auto-recompile to allow for realtime editing of the web app.
+
+Dynamic recompilation is not supported for the backend, so you'll have to manually rerun the command when the backend is modified. It's recommended to rely more on unit tests for backend development.
+
+## API Reference
+
+- Backend API documentation: [backend/api.md](backend/api.md)
 
 ## Contributing
 

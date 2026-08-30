@@ -1,0 +1,129 @@
+#workspaces {
+    height: calc(100% - 10px);
+    min-width: 25%;
+}
+
+.workspaces-header {
+    font-size: 2rem;
+    font-weight: bold;
+    margin-bottom: 0.2rem;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: nowrap;
+    justify-content: center;
+
+    border: 1px solid #2c2f3a;
+    border-bottom: 2px solid #2c2f3a;
+
+    border-radius: 6px;
+    padding: 3px;
+}
+
+.new-workspace-button {
+    width: auto;
+    height: 2rem;
+    aspect-ratio: 1;
+    cursor: pointer;
+    border-radius: 25%;
+    filter: invert(1) brightness(0.8);
+    margin-left: auto;
+}
+
+.new-workspace-button:hover {
+    background-color: hsl(0 0% 50%);
+    filter: invert(1) brightness(1);
+}
+
+.workspace-header {
+    font-size: 1.6rem;
+    font-weight: bold;
+    margin-bottom: 0.1rem;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: nowrap;
+
+    border: 1px solid #2c2f3a;
+    border-radius: 6px;
+
+    padding: 3px;
+}
+
+.workspace-header:hover {
+    background-color: #2c2f3a;
+    cursor: pointer;
+}
+
+.workspace-header span {
+    white-space: nowrap;
+    margin-right: auto;
+}
+
+.workspace-header:not(:hover) img {
+    display: none;
+}
+
+.workspace-header:hover img {
+    display: block;
+
+    width: auto;
+    height: 1.6rem;
+    aspect-ratio: 1;
+    cursor: pointer;
+    border-radius: 25%;
+    filter: invert(1) brightness(0.8);
+}
+
+.workspace-header img:hover {
+    background-color: hsl(0 0% 50%);
+    filter: invert(1) brightness(1);
+}
+
+.conversation-header {
+    font-size: 1.2rem;
+    font-weight: normal;
+    padding: 5px;
+    padding-left: 10px;
+    border-radius: 6px;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+}
+
+.conversation-header:hover {
+    background-color: #2c2f3a;
+    cursor: pointer;
+}
+
+.conversation-header span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 0;
+    flex-grow: 1;
+    margin-right: auto;
+}
+
+.conversation-header:not(:hover) img {
+    display: none;
+}
+
+.conversation-header:hover img {
+    display: block;
+
+    width: auto;
+    height: 1.2rem;
+    aspect-ratio: 1;
+    cursor: pointer;
+    border-radius: 25%;
+    filter: invert(1) brightness(0.8);
+}
+
+.conversation-header img:hover {
+    background-color: hsl(0 0% 50%);
+    filter: invert(1) brightness(1);
+}

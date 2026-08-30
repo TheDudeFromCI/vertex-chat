@@ -1,0 +1,130 @@
+#chat-history {
+    height: calc(100% - 10px);
+    overflow-y: auto;
+    flex-grow: 1;
+
+    display: flex;
+    flex-direction: column;
+}
+
+#chat-history-outer-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    flex-grow: 1;
+
+    border: 1px solid #2c2f3a;
+    border-radius: 25px;
+}
+
+#chat-history-container {
+    width: 100%;
+    overflow-y: auto;
+}
+
+#chat-input-field {
+    display: block;
+
+    bottom: 0;
+    width: calc(100% - 20px);
+    background-color: #1d2230;
+    margin-top: 10px;
+    padding: 10px 5px;
+    border-top: 1px solid #2c2f3a;
+    border-radius: 5px;
+
+    color: #e2e8f0;
+
+    outline: none;
+    border: 1px solid #2c2f3a;
+
+    font-size: 1rem;
+    line-height: 1rem;
+    max-height: calc(10rem + 22px); /* 10 lines of text + 22px for padding and border */
+    overflow-y: auto;
+}
+
+#chat-input-field:focus {
+    outline: none;
+    border-color: #4a90e2;
+}
+
+.chat-message-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    margin: 8px 5px;
+}
+
+.chat-message-row.left-aligned {
+    justify-content: flex-start;
+}
+
+.chat-message-row.right-aligned {
+    justify-content: flex-end;
+}
+
+.chat-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #2c2f3a;
+    background-color: #1d2230;
+}
+
+.chat-message {
+    padding: 10px 12px;
+    border-radius: 6px;
+    background-color: #4a4b5c;
+    width: fit-content;
+    max-width: 80%;
+}
+
+.chat-message-name {
+    color: #cfd8e3;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.chat-message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.chat-message-content p ~ p {
+    margin-top: 0.75rem;
+}
+
+.chat-message-text {
+    color: #e2e8f0;
+}
+
+.chat-message-thinking {
+    background-color: #2c2f3a;
+    font-style: italic;
+    border: 1px solid #4a90e2;
+    padding: 4px;
+}
+
+.chat-message-toolcall {
+    background-color: #2c2f3a;
+    font-style: italic;
+    border: 1px solid #4a90e2;
+}
+
+.chat-message-toolresponse {
+    background-color: #2c2f3a;
+    font-style: italic;
+    border: 1px solid #4a90e2;
+}
+
+.chat-input-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 5px;
+}

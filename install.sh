@@ -4,26 +4,18 @@ set -euo pipefail
 
 CWD=$(pwd)
 
-install_frontend () {
-    cd frontend
+install () {
+    cd $1
     npm install
     RETURN_CODE=$?
-    cd $CWD
 
     if [ $RETURN_CODE -ne 0 ]; then
+        cd $CWD
         exit $RETURN_CODE
     fi
-}
 
-install_backend () {
-    cd backend
-    if [ ! -d ".venv" ]; then
-        python -m venv .venv
-    fi
 
-    source .venv/bin/activate
-    pip install --upgrade pip
-    pip install -r requirements.txt
+    npm run build
     RETURN_CODE=$?
     cd $CWD
 
@@ -32,8 +24,14 @@ install_backend () {
     fi
 }
 
+
+echo "Installing common dependencies..."
+install common
+
 echo "Installing frontend dependencies..."
-install_frontend
+install frontend
+
 echo "Installing backend dependencies..."
-install_backend
+install backend
+
 echo "Vertex installation complete."
