@@ -221,6 +221,8 @@ export class ChatHistory {
             container.appendChild(message.build())
         }
 
+        this.scrollToBottom()
+
         return div
     }
 
@@ -254,6 +256,8 @@ export class ChatHistory {
                 this.container.appendChild(this.messages[this.messages.length - 1].build())
             }
         }
+
+        this.scrollToBottom()
     }
 
     private async fetchActiveConversation(): Promise<Conversation> {
@@ -267,6 +271,7 @@ export class ChatHistory {
     }
 
     async appendMessage(message: Message): Promise<void> {
+        const shouldAutoScroll = this.isNearBottom()
         const isLeftAligned = message.sender !== this.app.userId
 
         const persona = await this.app.getPersona(message.sender)
@@ -278,6 +283,10 @@ export class ChatHistory {
         if (this.container) {
             this.container.appendChild(chatMessage.build())
         }
+
+        if (shouldAutoScroll) {
+            this.scrollToBottom()
+        }
     }
 
     async updateMessage(messageId: Uuid, newContent: MessageContent): Promise<void> {
@@ -287,5 +296,22 @@ export class ChatHistory {
         const existingMessage = this.messages[messageIndex]
         existingMessage.content = newContent
         existingMessage.build()
+    }
+
+    private isNearBottom(thresholdPx: number = 64): boolean {
+        if (!this.container) {
+            return false
+        }
+
+        const remainingScroll = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight
+        return remainingScroll <= thresholdPx
+    }
+
+    private scrollToBottom(): void {
+        if (!this.container) {
+            return
+        }
+
+        this.container.scrollTop = this.container.scrollHeight
     }
 }
