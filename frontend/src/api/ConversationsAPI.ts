@@ -58,3 +58,18 @@ export async function updateMessage(
         throw new Error(`Failed to update message: ${errorResponse['error']}`)
     }
 }
+
+export async function updateConversationParticipants(conversationId: Uuid, participants: Uuid[]): Promise<void> {
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ participants }),
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to update conversation participants: ${errorResponse['error']}`)
+    }
+}

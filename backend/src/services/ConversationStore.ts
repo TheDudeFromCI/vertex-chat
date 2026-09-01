@@ -90,6 +90,13 @@ export class ConversationStore {
         return result.changes > 0
     }
 
+    updateConversationParticipants(conversationId: Uuid, participants: Uuid[]): boolean {
+        const result = this.database
+            .prepare('UPDATE conversations SET participants = ?, updatedAt = ? WHERE id = ?')
+            .run(JSON.stringify(participants), Date.now(), conversationId)
+        return result.changes > 0
+    }
+
     renameWorkspace(workspaceId: Uuid, newName: string): boolean {
         const result = this.database.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(newName, workspaceId)
         return result.changes > 0

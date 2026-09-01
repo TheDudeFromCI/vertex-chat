@@ -93,3 +93,20 @@ test('Deleting a workspace should also delete its conversations and messages', (
     assert.strictEqual(deletedMessage1, null)
     assert.strictEqual(deletedMessage2, null)
 })
+
+test('ConversationStore should update conversation participants', () => {
+    const db = new Database(':memory:')
+    const conversationStore = new ConversationStore(db)
+
+    const workspace = conversationStore.createWorkspace('Test Workspace')
+    const conversation = conversationStore.createConversation(workspace.id, 'Participants Test')
+
+    const participantA = generateUuid()
+    const participantB = generateUuid()
+    const success = conversationStore.updateConversationParticipants(conversation.id, [participantA, participantB])
+
+    assert.strictEqual(success, true)
+
+    const updatedConversation = conversationStore.getConversation(conversation.id)
+    assert.deepStrictEqual(updatedConversation?.participants, [participantA, participantB])
+})

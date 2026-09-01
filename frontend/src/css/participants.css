@@ -1,0 +1,323 @@
+#participants {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+}
+
+.participants-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+    padding: 8px;
+    border: 1px solid #2c2f3a;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.participants-open-picker {
+    border: 1px solid #396179;
+    background: linear-gradient(135deg, #29536b, #3e7fa0);
+    color: #eff6ff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.participants-open-picker:hover {
+    filter: brightness(1.08);
+}
+
+.participants-status {
+    color: #9fb3c8;
+    font-size: 0.9rem;
+}
+
+.participants-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.participant-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid #2c2f3a;
+    border-radius: 8px;
+    background-color: #1d2230;
+    padding: 8px;
+}
+
+.participant-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    object-fit: cover;
+    background-color: #0e1420;
+    border: 1px solid #2c2f3a;
+}
+
+.participant-avatar-placeholder {
+    opacity: 0.35;
+}
+
+.participant-name {
+    font-size: 0.95rem;
+    color: #ecf3fb;
+}
+
+.participants-empty {
+    color: #8b98ad;
+    padding: 12px;
+    border: 1px dashed #334155;
+    border-radius: 8px;
+}
+
+.participants-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(8, 12, 20, 0.68);
+    backdrop-filter: blur(3px);
+}
+
+.participants-modal {
+    width: min(900px, 92vw);
+    max-height: 86vh;
+    border: 1px solid #314154;
+    border-radius: 12px;
+    background: radial-gradient(circle at top right, #1f2b3d, #121824);
+    box-shadow: 0 24px 60px rgba(1, 5, 10, 0.45);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.participants-modal-header {
+    font-size: 1.1rem;
+    font-weight: 700;
+    padding: 14px 16px;
+    border-bottom: 1px solid #2a3445;
+}
+
+.participants-modal-body {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 12px;
+    min-height: 0;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.participants-modal-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.participants-modal-persona-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.participants-create-persona {
+    border-radius: 8px;
+    border: 1px solid #3f5f7a;
+    background: linear-gradient(135deg, #22364a, #365c7d);
+    color: #e8f2fb;
+    padding: 8px 10px;
+    cursor: pointer;
+}
+
+.participants-create-persona:hover {
+    filter: brightness(1.07);
+}
+
+.participants-modal-persona-item {
+    text-align: left;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background-color: #182234;
+    color: #e2e8f0;
+    padding: 8px 10px;
+    cursor: pointer;
+}
+
+.participants-modal-persona-item.selected {
+    border-color: #57a7d1;
+    background-color: #1f3b53;
+}
+
+.participants-modal-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 6px;
+}
+
+.participants-editor-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 1px solid #35516e;
+    background-color: #0e1420;
+    cursor: pointer;
+    transition:
+        filter 0.2s ease,
+        transform 0.2s ease;
+}
+
+.participants-editor-avatar:hover {
+    filter: brightness(1.08);
+    transform: scale(1.02);
+}
+
+.participants-editor-avatar-placeholder {
+    opacity: 0.3;
+}
+
+.participants-editor-label {
+    font-size: 0.85rem;
+    color: #9fb3c8;
+}
+
+.participants-editor-input,
+.participants-editor-textarea {
+    width: 100%;
+    color: #e2e8f0;
+    background-color: #0f1522;
+    border: 1px solid #314154;
+    border-radius: 8px;
+    padding: 8px;
+    font-family: inherit;
+}
+
+.participants-editor-textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.participants-editor-metadata {
+    border: 1px solid #2a3445;
+    border-radius: 8px;
+    background-color: rgba(16, 24, 36, 0.65);
+    padding: 8px;
+    font-size: 0.85rem;
+    color: #aab8ca;
+    line-height: 1.5;
+}
+
+.participants-editor-autosave {
+    color: #8db8d5;
+    font-size: 0.82rem;
+}
+
+.participants-editor-save-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 0.82rem;
+}
+
+.participants-editor-save-indicator.saving {
+    color: #9ad8ff;
+    border-color: #3d6785;
+    background-color: rgba(32, 74, 105, 0.25);
+}
+
+.participants-editor-save-indicator.saved {
+    color: #9ad5af;
+    border-color: #3b6f52;
+    background-color: rgba(24, 75, 41, 0.28);
+}
+
+.participants-editor-save-indicator.saved img {
+    width: 14px;
+    height: 14px;
+}
+
+.participants-editor-save-indicator.error {
+    color: #ffb4b4;
+    border-color: #7a4141;
+    background-color: rgba(107, 37, 37, 0.28);
+}
+
+.participants-saving-spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(154, 216, 255, 0.3);
+    border-top-color: #9ad8ff;
+    animation: participants-spin 0.75s linear infinite;
+}
+
+@keyframes participants-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.participants-editor-empty {
+    color: #9fb3c8;
+    padding: 8px;
+    border: 1px dashed #334155;
+    border-radius: 8px;
+}
+
+.participants-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid #2a3445;
+}
+
+.participants-modal-actions button {
+    border-radius: 8px;
+    border: 1px solid #334155;
+    padding: 7px 12px;
+    cursor: pointer;
+    color: #e2e8f0;
+    background-color: #162030;
+}
+
+.participants-modal-actions .participants-confirm {
+    background: linear-gradient(135deg, #2e6d91, #3b89b5);
+    border-color: #4ea3d1;
+}
+
+.participants-modal-actions .participants-cancel {
+    background-color: #232835;
+}
+
+@media (max-width: 900px) {
+    .participants-modal-body {
+        grid-template-columns: 1fr;
+    }
+
+    .participants-modal {
+        width: 95vw;
+    }
+}

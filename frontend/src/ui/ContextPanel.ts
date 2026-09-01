@@ -1,10 +1,11 @@
 import { Participants } from './Participants.js'
+import type { App } from '../App.js'
 
 export class ContextPanel {
     private readonly participants: Participants
 
-    constructor() {
-        this.participants = new Participants()
+    constructor(app: App) {
+        this.participants = new Participants(app)
     }
 
     build(): HTMLDivElement {
@@ -16,5 +17,9 @@ export class ContextPanel {
         div.appendChild(participantsDiv)
 
         return div
+    }
+
+    async reloadParticipants(): Promise<void> {
+        await this.participants.reload()
     }
 }

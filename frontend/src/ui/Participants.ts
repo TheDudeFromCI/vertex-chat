@@ -1,7 +1,556 @@
+import '../css/participants.css'
+
+import type { Persona, Uuid } from 'vertex-common'
+import { fetchConversation, updateConversationParticipants } from '../api/ConversationsAPI.js'
+import { createPersona, setPersonaAvatar, updatePersona } from '../api/PersonasAPI.js'
+import type { App } from '../App.js'
+
+const SAVE_SYMBOL = new URL('../../icons/save.png', import.meta.url).href
+
+interface ParticipantDisplay {
+    id: Uuid
+    name: string
+    avatarUrl: string | null
+    updatedAt: number
+}
+
 export class Participants {
+    private readonly app: App
+    private participantsContainer: HTMLDivElement | null = null
+    private statusText: HTMLDivElement | null = null
+    private participantIds: Uuid[] = []
+
+    private modalOverlay: HTMLDivElement | null = null
+    private modalPersonas: Persona[] = []
+    private modalSelectedPersonaId: Uuid | null = null
+    private modalPersonaList: HTMLDivElement | null = null
+    private modalEditor: HTMLDivElement | null = null
+    private modalSaveIndicator: HTMLDivElement | null = null
+    private autosaveTimer: number | null = null
+    private autosaveState: 'saved' | 'saving' | 'error' = 'saved'
+
+    constructor(app: App) {
+        this.app = app
+    }
+
     build(): HTMLDivElement {
         const div = document.createElement('div')
         div.id = 'participants'
+
+        const header = document.createElement('div')
+        header.classList.add('participants-header')
+
+        const title = document.createElement('span')
+        title.textContent = 'Participants'
+        header.appendChild(title)
+
+        const openPickerButton = document.createElement('button')
+        openPickerButton.type = 'button'
+        openPickerButton.classList.add('participants-open-picker')
+        openPickerButton.textContent = 'Add Persona'
+        openPickerButton.addEventListener('click', async () => {
+            await this.openPersonaModal()
+        })
+        header.appendChild(openPickerButton)
+        div.appendChild(header)
+
+        const statusText = document.createElement('div')
+        statusText.classList.add('participants-status')
+        div.appendChild(statusText)
+        this.statusText = statusText
+
+        const participantsContainer = document.createElement('div')
+        participantsContainer.classList.add('participants-list')
+        div.appendChild(participantsContainer)
+        this.participantsContainer = participantsContainer
+        void this.reload()
         return div
+    }
+
+    async reload(): Promise<void> {
+        const conversationId = this.app.conversationId
+        if (!conversationId) {
+            this.participantIds = []
+            this.renderParticipants([])
+            this.setStatus('Open a conversation to manage participants.')
+            return
+        }
+
+        try {
+            const conversation = await fetchConversation(conversationId)
+            this.participantIds = [...conversation.participants]
+            const display = await this.buildParticipantDisplay(conversation.participants)
+            this.renderParticipants(display)
+            this.setStatus(`${conversation.participants.length} participant(s) in this conversation.`)
+        } catch (error) {
+            console.error('Failed to reload participants:', error)
+            this.setStatus('Failed to load participants.')
+        }
+    }
+
+    private async buildParticipantDisplay(participantIds: Uuid[]): Promise<ParticipantDisplay[]> {
+        const entries: ParticipantDisplay[] = []
+
+        for (const personaId of participantIds) {
+            const persona = await this.app.getPersona(personaId)
+            entries.push({
+                id: personaId,
+                name: persona?.name ?? 'Unknown Persona',
+                avatarUrl: persona?.avatarUrl ?? null,
+                updatedAt: persona?.updated ?? 0,
+            })
+        }
+
+        return entries
+    }
+
+    private renderParticipants(participants: ParticipantDisplay[]): void {
+        if (!this.participantsContainer) {
+            return
+        }
+
+        this.participantsContainer.replaceChildren()
+
+        if (participants.length === 0) {
+            const empty = document.createElement('div')
+            empty.classList.add('participants-empty')
+            empty.textContent = 'No participants yet.'
+            this.participantsContainer.appendChild(empty)
+            return
+        }
+
+        for (const participant of participants) {
+            const row = document.createElement('div')
+            row.classList.add('participant-row')
+
+            const avatar = document.createElement('img')
+            avatar.classList.add('participant-avatar')
+            avatar.src =
+                this.getAvatarDisplayUrl(participant.avatarUrl, participant.updatedAt) ??
+                'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+            avatar.alt = `${participant.name} avatar`
+            if (!participant.avatarUrl) {
+                avatar.classList.add('participant-avatar-placeholder')
+            }
+            row.appendChild(avatar)
+
+            const name = document.createElement('div')
+            name.classList.add('participant-name')
+            name.textContent = participant.name
+            row.appendChild(name)
+
+            this.participantsContainer.appendChild(row)
+        }
+    }
+
+    private setStatus(text: string): void {
+        if (this.statusText) {
+            this.statusText.textContent = text
+        }
+    }
+
+    private async openPersonaModal(): Promise<void> {
+        if (!this.app.conversationId) {
+            this.setStatus('Select a conversation before adding participants.')
+            return
+        }
+
+        await this.app.reloadPersonas()
+        this.modalPersonas = [...this.app.personaList]
+        this.modalSelectedPersonaId = this.modalPersonas[0]?.id ?? null
+
+        if (this.modalOverlay) {
+            this.modalOverlay.remove()
+            this.modalOverlay = null
+        }
+
+        const overlay = document.createElement('div')
+        overlay.classList.add('participants-modal-overlay')
+
+        const modal = document.createElement('div')
+        modal.classList.add('participants-modal')
+        overlay.appendChild(modal)
+
+        const modalHeader = document.createElement('div')
+        modalHeader.classList.add('participants-modal-header')
+        modalHeader.textContent = 'Persona Manager'
+        modal.appendChild(modalHeader)
+
+        const body = document.createElement('div')
+        body.classList.add('participants-modal-body')
+        modal.appendChild(body)
+
+        const sidebar = document.createElement('div')
+        sidebar.classList.add('participants-modal-sidebar')
+        body.appendChild(sidebar)
+
+        const personaList = document.createElement('div')
+        personaList.classList.add('participants-modal-persona-list')
+        sidebar.appendChild(personaList)
+        this.modalPersonaList = personaList
+
+        const createButton = document.createElement('button')
+        createButton.type = 'button'
+        createButton.textContent = 'Create Persona'
+        createButton.classList.add('participants-create-persona')
+        createButton.addEventListener('click', async () => {
+            await this.createPersonaFromModal()
+        })
+        sidebar.appendChild(createButton)
+
+        const editor = document.createElement('div')
+        editor.classList.add('participants-modal-editor')
+        body.appendChild(editor)
+        this.modalEditor = editor
+
+        const actions = document.createElement('div')
+        actions.classList.add('participants-modal-actions')
+        modal.appendChild(actions)
+
+        const cancelButton = document.createElement('button')
+        cancelButton.type = 'button'
+        cancelButton.textContent = 'Cancel'
+        cancelButton.classList.add('participants-cancel')
+        cancelButton.addEventListener('click', () => {
+            this.closeModal()
+        })
+        actions.appendChild(cancelButton)
+
+        const confirmButton = document.createElement('button')
+        confirmButton.type = 'button'
+        confirmButton.textContent = 'Confirm'
+        confirmButton.classList.add('participants-confirm')
+        confirmButton.addEventListener('click', async () => {
+            await this.confirmPersonaSelection()
+        })
+        actions.appendChild(confirmButton)
+
+        this.modalOverlay = overlay
+        document.body.appendChild(overlay)
+
+        this.renderModalPersonaList()
+        this.renderModalEditor()
+    }
+
+    private closeModal(): void {
+        if (this.autosaveTimer !== null) {
+            clearTimeout(this.autosaveTimer)
+            this.autosaveTimer = null
+        }
+
+        if (this.modalOverlay) {
+            this.modalOverlay.remove()
+            this.modalOverlay = null
+        }
+        this.modalPersonaList = null
+        this.modalEditor = null
+        this.modalSaveIndicator = null
+        this.modalPersonas = []
+        this.modalSelectedPersonaId = null
+        this.autosaveState = 'saved'
+    }
+
+    private renderModalPersonaList(): void {
+        if (!this.modalPersonaList) {
+            return
+        }
+
+        this.modalPersonaList.replaceChildren()
+
+        for (const persona of this.modalPersonas) {
+            const button = document.createElement('button')
+            button.type = 'button'
+            button.classList.add('participants-modal-persona-item')
+            if (persona.id === this.modalSelectedPersonaId) {
+                button.classList.add('selected')
+            }
+            button.textContent = persona.name
+            button.addEventListener('click', () => {
+                this.modalSelectedPersonaId = persona.id
+                this.renderModalPersonaList()
+                this.renderModalEditor()
+            })
+            this.modalPersonaList.appendChild(button)
+        }
+    }
+
+    private renderModalEditor(): void {
+        if (!this.modalEditor) {
+            return
+        }
+
+        this.modalEditor.replaceChildren()
+
+        const selected = this.modalPersonas.find((persona) => persona.id === this.modalSelectedPersonaId)
+        if (!selected) {
+            const empty = document.createElement('div')
+            empty.classList.add('participants-editor-empty')
+            empty.textContent = 'Select a persona to inspect and edit.'
+            this.modalEditor.appendChild(empty)
+            return
+        }
+
+        const avatar = document.createElement('img')
+        avatar.classList.add('participants-editor-avatar')
+        avatar.src =
+            this.getAvatarDisplayUrl(selected.avatarUrl, selected.updated) ??
+            'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+        avatar.alt = `${selected.name} avatar`
+        avatar.title = 'Click to upload a new avatar'
+        avatar.addEventListener('click', async () => {
+            await this.selectAndUploadAvatar(selected.id)
+        })
+        if (!selected.avatarUrl) {
+            avatar.classList.add('participants-editor-avatar-placeholder')
+        }
+        this.modalEditor.appendChild(avatar)
+
+        const nameLabel = document.createElement('label')
+        nameLabel.classList.add('participants-editor-label')
+        nameLabel.textContent = 'Name'
+        this.modalEditor.appendChild(nameLabel)
+
+        const nameInput = document.createElement('input')
+        nameInput.type = 'text'
+        nameInput.value = selected.name
+        nameInput.classList.add('participants-editor-input')
+        nameInput.addEventListener('input', () => {
+            selected.name = nameInput.value
+            this.renderModalPersonaList()
+            this.setAutosaveState('saving')
+            this.scheduleAutosave(selected.id)
+        })
+        this.modalEditor.appendChild(nameInput)
+
+        const promptLabel = document.createElement('label')
+        promptLabel.classList.add('participants-editor-label')
+        promptLabel.textContent = 'Prompt'
+        this.modalEditor.appendChild(promptLabel)
+
+        const promptInput = document.createElement('textarea')
+        promptInput.value = selected.prompt
+        promptInput.classList.add('participants-editor-textarea')
+        promptInput.rows = 8
+        promptInput.addEventListener('input', () => {
+            selected.prompt = promptInput.value
+            this.setAutosaveState('saving')
+            this.scheduleAutosave(selected.id)
+        })
+        this.modalEditor.appendChild(promptInput)
+
+        const metadata = document.createElement('div')
+        metadata.classList.add('participants-editor-metadata')
+        metadata.innerHTML = [
+            `<div><strong>ID:</strong> ${selected.id}</div>`,
+            `<div><strong>Created:</strong> ${new Date(selected.created).toLocaleString()}</div>`,
+            `<div><strong>Updated:</strong> ${new Date(selected.updated).toLocaleString()}</div>`,
+        ].join('')
+        this.modalEditor.appendChild(metadata)
+
+        const autosaveHint = document.createElement('div')
+        autosaveHint.classList.add('participants-editor-autosave')
+        autosaveHint.textContent = 'Changes autosave shortly after you stop typing.'
+        this.modalEditor.appendChild(autosaveHint)
+
+        const saveIndicator = document.createElement('div')
+        saveIndicator.classList.add('participants-editor-save-indicator')
+        this.modalEditor.appendChild(saveIndicator)
+        this.modalSaveIndicator = saveIndicator
+        this.renderSaveIndicator()
+    }
+
+    private scheduleAutosave(personaId: Uuid): void {
+        if (this.autosaveTimer !== null) {
+            clearTimeout(this.autosaveTimer)
+        }
+
+        this.autosaveTimer = window.setTimeout(async () => {
+            const persona = this.modalPersonas.find((entry) => entry.id === personaId)
+            if (!persona) {
+                return
+            }
+
+            try {
+                const updated = await updatePersona(persona.id, {
+                    name: persona.name,
+                    prompt: persona.prompt,
+                })
+                const index = this.modalPersonas.findIndex((entry) => entry.id === updated.id)
+                if (index >= 0) {
+                    this.modalPersonas[index] = updated
+                    this.modalSelectedPersonaId = updated.id
+                }
+                await this.app.reloadPersonas()
+                await this.reload()
+                this.setAutosaveState('saved')
+                this.renderModalPersonaList()
+                this.renderModalEditor()
+            } catch (error) {
+                console.error('Failed to autosave persona changes:', error)
+                this.setAutosaveState('error')
+                this.setStatus('Autosave failed. Try again.')
+            }
+        }, 600)
+    }
+
+    private async createPersonaFromModal(): Promise<void> {
+        try {
+            const created = await createPersona('Unnamed Assistant', 'You are a helpful assistant.')
+            await this.app.reloadPersonas()
+            this.modalPersonas = [...this.app.personaList]
+            this.modalSelectedPersonaId = created.id
+            this.setAutosaveState('saved')
+            this.renderModalPersonaList()
+            this.renderModalEditor()
+        } catch (error) {
+            console.error('Failed to create persona:', error)
+            this.setStatus('Failed to create persona.')
+        }
+    }
+
+    private async confirmPersonaSelection(): Promise<void> {
+        const selectedId = this.modalSelectedPersonaId
+        const conversationId = this.app.conversationId
+
+        if (!selectedId || !conversationId) {
+            this.closeModal()
+            return
+        }
+
+        if (this.participantIds.includes(selectedId)) {
+            this.closeModal()
+            this.setStatus('Persona already in participants.')
+            return
+        }
+
+        const updatedParticipants = [...this.participantIds, selectedId]
+
+        try {
+            await updateConversationParticipants(conversationId, updatedParticipants)
+            this.participantIds = updatedParticipants
+            await this.reload()
+            this.setStatus('Persona added to participants.')
+        } catch (error) {
+            console.error('Failed to add participant:', error)
+            this.setStatus('Failed to add participant.')
+        }
+
+        this.closeModal()
+    }
+
+    private async selectAndUploadAvatar(personaId: Uuid): Promise<void> {
+        const file = await this.pickAvatarFile()
+        if (!file) {
+            return
+        }
+
+        this.setAutosaveState('saving')
+
+        try {
+            const fileDataBase64 = await this.readFileAsDataUrl(file)
+            await setPersonaAvatar(personaId, fileDataBase64)
+            await this.app.reloadPersonas()
+            this.modalPersonas = [...this.app.personaList]
+
+            if (!this.modalPersonas.some((persona) => persona.id === this.modalSelectedPersonaId)) {
+                this.modalSelectedPersonaId = this.modalPersonas[0]?.id ?? null
+            }
+
+            await this.reload()
+            this.setAutosaveState('saved')
+            this.renderModalPersonaList()
+            this.renderModalEditor()
+            this.setStatus('Avatar updated.')
+        } catch (error) {
+            console.error('Failed to update persona avatar:', error)
+            this.setAutosaveState('error')
+            this.setStatus('Failed to update avatar.')
+        }
+    }
+
+    private async pickAvatarFile(): Promise<File | null> {
+        return await new Promise<File | null>((resolve) => {
+            const input = document.createElement('input')
+            input.type = 'file'
+            input.accept = 'image/*'
+            input.style.display = 'none'
+
+            input.addEventListener('change', () => {
+                const file = input.files?.[0] ?? null
+                input.remove()
+                resolve(file)
+            })
+
+            document.body.appendChild(input)
+            input.click()
+        })
+    }
+
+    private async readFileAsDataUrl(file: File): Promise<string> {
+        return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+                if (typeof reader.result !== 'string') {
+                    reject(new Error('Failed to read file data'))
+                    return
+                }
+                resolve(reader.result)
+            }
+            reader.onerror = () => {
+                reject(reader.error ?? new Error('Failed to read file data'))
+            }
+            reader.readAsDataURL(file)
+        })
+    }
+
+    private getAvatarDisplayUrl(avatarUrl: string | null, updatedAt: number): string | null {
+        if (!avatarUrl) {
+            return null
+        }
+
+        const separator = avatarUrl.includes('?') ? '&' : '?'
+        return `${avatarUrl}${separator}v=${updatedAt}`
+    }
+
+    private setAutosaveState(state: 'saved' | 'saving' | 'error'): void {
+        this.autosaveState = state
+        this.renderSaveIndicator()
+    }
+
+    private renderSaveIndicator(): void {
+        if (!this.modalSaveIndicator) {
+            return
+        }
+
+        this.modalSaveIndicator.replaceChildren()
+        this.modalSaveIndicator.classList.remove('saving', 'saved', 'error')
+
+        if (this.autosaveState === 'saving') {
+            this.modalSaveIndicator.classList.add('saving')
+            const spinner = document.createElement('span')
+            spinner.classList.add('participants-saving-spinner')
+            this.modalSaveIndicator.appendChild(spinner)
+
+            const label = document.createElement('span')
+            label.textContent = 'Saving'
+            this.modalSaveIndicator.appendChild(label)
+            return
+        }
+
+        if (this.autosaveState === 'error') {
+            this.modalSaveIndicator.classList.add('error')
+            this.modalSaveIndicator.textContent = 'Save failed'
+            return
+        }
+
+        this.modalSaveIndicator.classList.add('saved')
+        const icon = document.createElement('img')
+        icon.src = SAVE_SYMBOL
+        icon.alt = 'Saved'
+        this.modalSaveIndicator.appendChild(icon)
+
+        const label = document.createElement('span')
+        label.textContent = 'Saved'
+        this.modalSaveIndicator.appendChild(label)
     }
 }

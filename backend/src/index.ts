@@ -335,11 +335,19 @@ app.delete('/api/conversations/:conversationId', (req: Request, res: Response) =
 app.patch('/api/conversations/:conversationId', (req: Request, res: Response) => {
     const conversationId = req.params['conversationId'] as Uuid
     const newName = req.body.name as string | undefined
-    console.log('Received request to rename conversation with ID:', conversationId, 'to new name:', newName)
+    const participants = req.body.participants as Uuid[] | undefined
+    console.log(
+        'Received request to update conversation with ID:',
+        conversationId,
+        'name:',
+        newName,
+        'participants:',
+        participants,
+    )
 
-    if (!newName) {
-        console.warn('Missing name in request body for renaming conversation with ID:', conversationId)
-        res.status(400).json({ error: 'Missing name' })
+    if (newName === undefined && participants === undefined) {
+        console.warn('Missing name and participants in request body for updating conversation with ID:', conversationId)
+        res.status(400).json({ error: 'Missing name and/or participants' })
         return
     }
 
@@ -350,14 +358,25 @@ app.patch('/api/conversations/:conversationId', (req: Request, res: Response) =>
         return
     }
 
-    const success = conversationStore.renameConversation(conversation.id, newName)
-    if (!success) {
-        console.error('Failed to rename conversation with ID:', conversationId)
-        res.status(500).json({ error: 'Failed to rename conversation' })
-        return
+    if (newName !== undefined) {
+        const renamed = conversationStore.renameConversation(conversation.id, newName)
+        if (!renamed) {
+            console.error('Failed to rename conversation with ID:', conversationId)
+            res.status(500).json({ error: 'Failed to rename conversation' })
+            return
+        }
     }
 
-    res.json({ message: 'Conversation renamed' })
+    if (participants !== undefined) {
+        const updatedParticipants = conversationStore.updateConversationParticipants(conversation.id, participants)
+        if (!updatedParticipants) {
+            console.error('Failed to update participants for conversation with ID:', conversationId)
+            res.status(500).json({ error: 'Failed to update conversation participants' })
+            return
+        }
+    }
+
+    res.json({ message: 'Conversation updated' })
 })
 
 // ===== Messages endpoint =====

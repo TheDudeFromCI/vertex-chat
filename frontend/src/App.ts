@@ -22,7 +22,7 @@ export class App {
         this.header = new Header(this)
         this.chatHistory = new ChatHistory(this)
         this.workspaces = new Workspaces(this)
-        this.contextPanel = new ContextPanel()
+        this.contextPanel = new ContextPanel(this)
         this.personaCache = new PersonaCache()
         this.chatManager = new ChatManager(this)
     }
@@ -61,6 +61,7 @@ export class App {
     async loadConversation(conversationId: Uuid | null): Promise<void> {
         this._conversationId = conversationId
         await this.chatHistory.reloadConversation()
+        await this.contextPanel.reloadParticipants()
     }
 
     async sendMessage(
@@ -96,6 +97,7 @@ export class App {
     async reloadPersonas(): Promise<void> {
         await this.personaCache.reloadAllPersonas()
         await this.header.reloadPersonas()
+        await this.contextPanel.reloadParticipants()
     }
 
     async getPersona(id: Uuid): Promise<Persona | null> {
