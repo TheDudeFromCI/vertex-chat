@@ -47,10 +47,23 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
+    text-align: left;
     border: 1px solid #2c2f3a;
     border-radius: 8px;
     background-color: #1d2230;
     padding: 8px;
+    color: inherit;
+    cursor: pointer;
+}
+
+.participant-row:hover {
+    border-color: #3d566f;
+}
+
+.participant-row.selected {
+    border-color: #57a7d1;
+    background-color: #1f3b53;
 }
 
 .participant-avatar {

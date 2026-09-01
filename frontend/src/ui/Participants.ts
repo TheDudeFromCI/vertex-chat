@@ -120,8 +120,20 @@ export class Participants {
         }
 
         for (const participant of participants) {
-            const row = document.createElement('div')
+            const row = document.createElement('button')
+            row.type = 'button'
             row.classList.add('participant-row')
+            if (participant.id === this.app.userId) {
+                row.classList.add('selected')
+                row.setAttribute('aria-pressed', 'true')
+            } else {
+                row.setAttribute('aria-pressed', 'false')
+            }
+            row.addEventListener('click', async () => {
+                await this.app.setUserId(participant.id)
+                this.renderParticipants(participants)
+                this.setStatus(`Selected ${participant.name}.`)
+            })
 
             const avatar = document.createElement('img')
             avatar.classList.add('participant-avatar')

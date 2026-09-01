@@ -2,14 +2,12 @@ import type { Message, MessageContent, Persona, Uuid } from 'vertex-common'
 import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
-import { Header } from './ui/Header.js'
 import { createMessage, deleteConversation, renameConversation, updateMessage } from './api/ConversationsAPI.js'
 import { generateMessageContent } from './api/ChatGenerationAPI.js'
 import { ChatManager } from './impl/Chat.js'
 import { PersonaCache } from './impl/Personas.js'
 
 export class App {
-    private readonly header: Header
     private readonly chatHistory: ChatHistory
     private readonly workspaces: Workspaces
     private readonly contextPanel: ContextPanel
@@ -19,7 +17,6 @@ export class App {
     private _conversationId: Uuid | null = null
 
     constructor() {
-        this.header = new Header(this)
         this.chatHistory = new ChatHistory(this)
         this.workspaces = new Workspaces(this)
         this.contextPanel = new ContextPanel(this)
@@ -34,9 +31,6 @@ export class App {
         const verticalLayout = document.createElement('div')
         verticalLayout.classList.add('vertical-layout')
         div.appendChild(verticalLayout)
-
-        const headerDiv = this.header.build()
-        verticalLayout.appendChild(headerDiv)
 
         const horizontalLayout = document.createElement('div')
         horizontalLayout.classList.add('horizontal-layout')
@@ -112,7 +106,6 @@ export class App {
 
     async reloadPersonas(): Promise<void> {
         await this.personaCache.reloadAllPersonas()
-        await this.header.reloadPersonas()
         await this.contextPanel.reloadParticipants()
     }
 
