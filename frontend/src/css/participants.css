@@ -270,6 +270,15 @@
     margin-bottom: 0.75rem;
 }
 
+.participants-editor-markdown h1,
+.participants-editor-markdown h2,
+.participants-editor-markdown h3,
+.participants-editor-markdown h4,
+.participants-editor-markdown h5,
+.participants-editor-markdown h6 {
+    margin-top: 1rem;
+}
+
 .participants-editor-markdown:hover,
 .participants-editor-markdown:focus {
     border-color: #4b6a87;

@@ -10,6 +10,8 @@ const DEFAULT_PROFILE_PICTURE = new URL('../../icons/default-pfp.png', import.me
 const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
+type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response'
+
 export class InputBox {
     private readonly app: App
 
@@ -144,29 +146,21 @@ export class ChatMessage {
         for (const block of this.content) {
             switch (block.type) {
                 case 'text':
-                    const text = document.createElement('div')
-                    text.classList.add('chat-message-text')
-                    text.innerHTML = md.render(block.content)
-                    messageContent.appendChild(text)
+                    messageContent.appendChild(this.buildMarkdownBlock(block.content, 'chat-message-text'))
                     break
 
                 case 'thinking':
-                    const thinking = document.createElement('div')
-                    thinking.classList.add('chat-message-thinking')
-                    thinking.innerHTML = md.render(block.content)
-                    messageContent.appendChild(thinking)
+                    messageContent.appendChild(this.buildCollapsibleSection('Thinking', block.content, 'thinking'))
                     break
                 case 'tool_call':
-                    const toolCall = document.createElement('div')
-                    toolCall.classList.add('chat-message-toolcall')
-                    toolCall.textContent = `/${block.content}`
-                    messageContent.appendChild(toolCall)
+                    messageContent.appendChild(
+                        this.buildCollapsibleSection('Tool Call', `/${block.content}`, 'tool_call'),
+                    )
                     break
                 case 'tool_response':
-                    const toolResponse = document.createElement('div')
-                    toolResponse.classList.add('chat-message-toolresponse')
-                    toolResponse.textContent = block.content
-                    messageContent.appendChild(toolResponse)
+                    messageContent.appendChild(
+                        this.buildCollapsibleSection('Tool Response', block.content, 'tool_response'),
+                    )
                     break
 
                 default:
@@ -205,6 +199,28 @@ export class ChatMessage {
         }
 
         return this.element
+    }
+
+    private buildMarkdownBlock(content: string, ...classNames: string[]): HTMLDivElement {
+        const block = document.createElement('div')
+        block.classList.add('chat-message-markdown', ...classNames)
+        block.innerHTML = md.render(content)
+        return block
+    }
+
+    private buildCollapsibleSection(title: string, content: string, kind: MessageSectionKind): HTMLDetailsElement {
+        const details = document.createElement('details')
+        details.classList.add('chat-message-section', `chat-message-section-${kind}`)
+
+        const summary = document.createElement('summary')
+        summary.classList.add('chat-message-section-summary')
+        summary.textContent = title
+        details.appendChild(summary)
+
+        const body = this.buildMarkdownBlock(content, 'chat-message-section-body')
+        details.appendChild(body)
+
+        return details
     }
 }
 
