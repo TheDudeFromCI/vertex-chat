@@ -4,8 +4,10 @@ import type { Persona, Uuid } from 'vertex-common'
 import { fetchConversation, updateConversationParticipants } from '../api/ConversationsAPI.js'
 import { createPersona, deletePersona, setPersonaAvatar, updatePersona } from '../api/PersonasAPI.js'
 import type { App } from '../App.js'
+import MarkdownIt from 'markdown-it'
 
 const SAVE_SYMBOL = new URL('../../icons/save.png', import.meta.url).href
+const md = new MarkdownIt({ typographer: true })
 
 interface ParticipantDisplay {
     id: Uuid
@@ -339,16 +341,56 @@ export class Participants {
         promptLabel.textContent = 'Prompt'
         this.modalEditor.appendChild(promptLabel)
 
-        const promptInput = document.createElement('textarea')
-        promptInput.value = selected.prompt
-        promptInput.classList.add('participants-editor-textarea')
-        promptInput.rows = 8
-        promptInput.addEventListener('input', () => {
-            selected.prompt = promptInput.value
-            this.setAutosaveState('saving')
-            this.scheduleAutosave(selected.id)
-        })
-        this.modalEditor.appendChild(promptInput)
+        const promptContainer = document.createElement('div')
+        promptContainer.classList.add('participants-editor-prompt-container')
+        this.modalEditor.appendChild(promptContainer)
+
+        const renderPromptPreview = (): void => {
+            promptContainer.replaceChildren()
+
+            const promptPreview = document.createElement('div')
+            promptPreview.classList.add('participants-editor-markdown')
+            promptPreview.tabIndex = 0
+            promptPreview.setAttribute('role', 'button')
+            promptPreview.setAttribute('aria-label', 'Edit persona prompt')
+            promptPreview.title = 'Click to edit prompt'
+            promptPreview.innerHTML = md.render(selected.prompt)
+            promptPreview.addEventListener('click', () => {
+                renderPromptEditor()
+            })
+            promptPreview.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    renderPromptEditor()
+                }
+            })
+
+            promptContainer.appendChild(promptPreview)
+        }
+
+        const renderPromptEditor = (): void => {
+            promptContainer.replaceChildren()
+
+            const promptInput = document.createElement('textarea')
+            promptInput.value = selected.prompt
+            promptInput.classList.add('participants-editor-textarea')
+            promptInput.rows = 8
+            promptInput.addEventListener('input', () => {
+                selected.prompt = promptInput.value
+                this.setAutosaveState('saving')
+                this.scheduleAutosave(selected.id)
+            })
+            promptInput.addEventListener('blur', () => {
+                selected.prompt = promptInput.value
+                renderPromptPreview()
+            })
+
+            promptContainer.appendChild(promptInput)
+            promptInput.focus()
+            promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length)
+        }
+
+        renderPromptPreview()
 
         const metadata = document.createElement('div')
         metadata.classList.add('participants-editor-metadata')
