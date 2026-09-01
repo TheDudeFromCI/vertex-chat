@@ -7,6 +7,7 @@ import { fetchConversation } from '../api/ConversationsAPI'
 import MarkdownIt from 'markdown-it'
 
 const DEFAULT_PROFILE_PICTURE = new URL('../../icons/default-pfp.png', import.meta.url).href
+const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
 export class InputBox {
@@ -96,6 +97,7 @@ export class ChatMessage {
     public profilePictureUrl: string
     public personaName: string
     public element: HTMLDivElement | null = null
+    private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
 
     constructor(
         id: Uuid,
@@ -103,12 +105,14 @@ export class ChatMessage {
         profilePictureUrl: string,
         personaName: string,
         leftAligned: boolean = true,
+        onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>,
     ) {
         this.id = id
         this.content = content
         this.profilePictureUrl = profilePictureUrl
         this.personaName = personaName
         this.leftAligned = leftAligned
+        this.onDelete = onDelete
     }
 
     build(): HTMLDivElement {
@@ -169,6 +173,26 @@ export class ChatMessage {
                     throw new Error(`Failed to parse block: ${JSON.stringify(block)}`)
             }
         }
+
+        const actions = document.createElement('div')
+        actions.classList.add('chat-message-actions')
+
+        const deleteButton = document.createElement('button')
+        deleteButton.type = 'button'
+        deleteButton.classList.add('chat-message-delete-button')
+        deleteButton.setAttribute('aria-label', 'Delete message')
+        deleteButton.title = 'Delete message'
+        deleteButton.addEventListener('click', async (event) => {
+            event.stopPropagation()
+            await this.onDelete(this.id, event.shiftKey)
+        })
+
+        const deleteIcon = document.createElement('img')
+        deleteIcon.src = DELETE_SYMBOL
+        deleteIcon.alt = ''
+        deleteButton.appendChild(deleteIcon)
+        actions.appendChild(deleteButton)
+        bubble.appendChild(actions)
 
         if (this.leftAligned) {
             this.element.classList.add('left-aligned')
@@ -250,6 +274,7 @@ export class ChatHistory {
                         DEFAULT_PROFILE_PICTURE,
                         '[Deleted User]',
                         isLeftAligned,
+                        this.confirmAndDeleteMessage.bind(this),
                     ),
                 )
                 if (this.container) {
@@ -259,7 +284,16 @@ export class ChatHistory {
             }
 
             const avatarUrl = persona.avatarUrl ?? DEFAULT_PROFILE_PICTURE
-            this.messages.push(new ChatMessage(message.id, message.content, avatarUrl, persona.name, isLeftAligned))
+            this.messages.push(
+                new ChatMessage(
+                    message.id,
+                    message.content,
+                    avatarUrl,
+                    persona.name,
+                    isLeftAligned,
+                    this.confirmAndDeleteMessage.bind(this),
+                ),
+            )
 
             if (this.container) {
                 this.container.appendChild(this.messages[this.messages.length - 1].build())
@@ -282,7 +316,14 @@ export class ChatHistory {
         const persona = await this.app.getPersona(message.sender)
         const avatarUrl = persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE
         const personaName = persona?.name ?? '[Deleted User]'
-        const chatMessage = new ChatMessage(message.id, message.content, avatarUrl, personaName, isLeftAligned)
+        const chatMessage = new ChatMessage(
+            message.id,
+            message.content,
+            avatarUrl,
+            personaName,
+            isLeftAligned,
+            this.confirmAndDeleteMessage.bind(this),
+        )
 
         this.messages.push(chatMessage)
         if (this.container) {
@@ -301,6 +342,32 @@ export class ChatHistory {
         const existingMessage = this.messages[messageIndex]
         existingMessage.content = newContent
         existingMessage.build()
+    }
+
+    async removeMessage(messageId: Uuid): Promise<void> {
+        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
+        if (messageIndex === -1) return
+
+        const [message] = this.messages.splice(messageIndex, 1)
+        if (message.element) {
+            message.element.remove()
+        }
+    }
+
+    private async confirmAndDeleteMessage(messageId: Uuid, skipConfirmation: boolean): Promise<void> {
+        if (!skipConfirmation) {
+            const confirmed = confirm('Delete this message?')
+            if (!confirmed) {
+                return
+            }
+        }
+
+        try {
+            await this.app.deleteMessage(messageId)
+        } catch (error) {
+            console.error('Failed to delete message:', error)
+            alert('Failed to delete message. Please try again.')
+        }
     }
 
     private isNearBottom(thresholdPx: number = 64): boolean {

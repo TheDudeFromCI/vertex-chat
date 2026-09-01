@@ -2,7 +2,13 @@ import type { Message, MessageContent, Persona, Uuid } from 'vertex-common'
 import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
-import { createMessage, deleteConversation, renameConversation, updateMessage } from './api/ConversationsAPI.js'
+import {
+    createMessage,
+    deleteConversation,
+    deleteMessage as deleteMessageApi,
+    renameConversation,
+    updateMessage,
+} from './api/ConversationsAPI.js'
 import { generateMessageContent } from './api/ChatGenerationAPI.js'
 import { ChatManager } from './impl/Chat.js'
 import { PersonaCache } from './impl/Personas.js'
@@ -83,6 +89,11 @@ export class App {
         const message = await createMessage(conversationId, sender, content, metadata)
         await this.chatHistory.appendMessage(message)
         return message
+    }
+
+    async deleteMessage(messageId: Uuid): Promise<void> {
+        await deleteMessageApi(messageId)
+        await this.chatHistory.removeMessage(messageId)
     }
 
     async generateAgentMessage(conversationId: Uuid, agentId: Uuid): Promise<void> {

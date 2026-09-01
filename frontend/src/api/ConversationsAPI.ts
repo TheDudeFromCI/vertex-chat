@@ -59,6 +59,17 @@ export async function updateMessage(
     }
 }
 
+export async function deleteMessage(messageId: Uuid): Promise<void> {
+    const response = await fetch(`/api/messages/${messageId}`, {
+        method: 'DELETE',
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to delete message: ${errorResponse['error']}`)
+    }
+}
+
 export async function updateConversationParticipants(conversationId: Uuid, participants: Uuid[]): Promise<void> {
     const response = await fetch(`/api/conversations/${conversationId}`, {
         method: 'PATCH',

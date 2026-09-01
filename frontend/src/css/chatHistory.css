@@ -78,6 +78,9 @@
 }
 
 .chat-message {
+    position: relative;
+    display: flex;
+    flex-direction: column;
     padding: 10px 12px;
     border-radius: 6px;
     background-color: #4a4b5c;
@@ -96,6 +99,47 @@
     display: flex;
     flex-direction: column;
     gap: 15px;
+}
+
+.chat-message-actions {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    display: flex;
+    opacity: 0;
+    transition:
+        opacity 0.15s ease,
+        transform 0.15s ease;
+    transform: translateY(4px);
+}
+
+.chat-message-row:hover .chat-message-actions {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.chat-message-delete-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    filter: invert(1) brightness(0.85);
+}
+
+.chat-message-delete-button img {
+    width: 16px;
+    height: 16px;
+}
+
+.chat-message-delete-button:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    filter: invert(1) brightness(1);
 }
 
 .chat-message-content p ~ p {
