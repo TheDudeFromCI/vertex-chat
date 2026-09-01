@@ -2,7 +2,7 @@ import '../css/participants.css'
 
 import type { Persona, Uuid } from 'vertex-common'
 import { fetchConversation, updateConversationParticipants } from '../api/ConversationsAPI.js'
-import { createPersona, setPersonaAvatar, updatePersona } from '../api/PersonasAPI.js'
+import { createPersona, deletePersona, setPersonaAvatar, updatePersona } from '../api/PersonasAPI.js'
 import type { App } from '../App.js'
 
 const SAVE_SYMBOL = new URL('../../icons/save.png', import.meta.url).href
@@ -347,6 +347,15 @@ export class Participants {
         ].join('')
         this.modalEditor.appendChild(metadata)
 
+        const deleteButton = document.createElement('button')
+        deleteButton.type = 'button'
+        deleteButton.classList.add('participants-delete-persona')
+        deleteButton.textContent = 'Delete Persona'
+        deleteButton.addEventListener('click', async () => {
+            await this.deleteSelectedPersona(selected.id, selected.name)
+        })
+        this.modalEditor.appendChild(deleteButton)
+
         const autosaveHint = document.createElement('div')
         autosaveHint.classList.add('participants-editor-autosave')
         autosaveHint.textContent = 'Changes autosave shortly after you stop typing.'
@@ -465,6 +474,42 @@ export class Participants {
             console.error('Failed to update persona avatar:', error)
             this.setAutosaveState('error')
             this.setStatus('Failed to update avatar.')
+        }
+    }
+
+    private async deleteSelectedPersona(personaId: Uuid, personaName: string): Promise<void> {
+        const confirmed = confirm(
+            `Delete persona "${personaName}"? Existing messages from this persona will remain in the conversation history.`,
+        )
+        if (!confirmed) {
+            return
+        }
+
+        try {
+            await deletePersona(personaId)
+            await this.app.reloadPersonas()
+
+            const filteredParticipants = this.participantIds.filter((id) => id !== personaId)
+            const conversationId = this.app.conversationId
+            if (conversationId && filteredParticipants.length !== this.participantIds.length) {
+                await updateConversationParticipants(conversationId, filteredParticipants)
+                this.participantIds = filteredParticipants
+            }
+
+            this.modalPersonas = [...this.app.personaList]
+            this.modalSelectedPersonaId = this.modalPersonas[0]?.id ?? null
+
+            if (conversationId) {
+                await this.app.loadConversation(conversationId)
+            }
+
+            await this.reload()
+            this.renderModalPersonaList()
+            this.renderModalEditor()
+            this.setStatus('Persona deleted.')
+        } catch (error) {
+            console.error('Failed to delete persona:', error)
+            this.setStatus('Failed to delete persona.')
         }
     }
 

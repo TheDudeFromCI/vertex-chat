@@ -244,8 +244,17 @@ export class ChatHistory {
             const persona = await this.app.getPersona(message.sender)
             if (!persona) {
                 this.messages.push(
-                    new ChatMessage(message.id, message.content, DEFAULT_PROFILE_PICTURE, 'System', false),
+                    new ChatMessage(
+                        message.id,
+                        message.content,
+                        DEFAULT_PROFILE_PICTURE,
+                        '[Deleted User]',
+                        isLeftAligned,
+                    ),
                 )
+                if (this.container) {
+                    this.container.appendChild(this.messages[this.messages.length - 1].build())
+                }
                 continue
             }
 
@@ -276,7 +285,7 @@ export class ChatHistory {
 
         const persona = await this.app.getPersona(message.sender)
         const avatarUrl = persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE
-        const personaName = persona?.name ?? 'System'
+        const personaName = persona?.name ?? '[Deleted User]'
         const chatMessage = new ChatMessage(message.id, message.content, avatarUrl, personaName, isLeftAligned)
 
         this.messages.push(chatMessage)

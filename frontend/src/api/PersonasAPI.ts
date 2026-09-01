@@ -75,3 +75,14 @@ export async function setPersonaAvatar(personaId: Uuid, fileDataBase64: string):
         throw new Error(`Failed to update persona avatar: ${errorResponse['error']}`)
     }
 }
+
+export async function deletePersona(personaId: Uuid): Promise<void> {
+    const response = await fetch(`/api/personas/${personaId}`, {
+        method: 'DELETE',
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to delete persona: ${errorResponse['error']}`)
+    }
+}

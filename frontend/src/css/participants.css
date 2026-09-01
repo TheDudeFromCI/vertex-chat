@@ -222,6 +222,20 @@
     line-height: 1.5;
 }
 
+.participants-delete-persona {
+    align-self: flex-start;
+    border-radius: 8px;
+    border: 1px solid #7a4141;
+    background: linear-gradient(135deg, #5f2323, #7d2b2b);
+    color: #ffdede;
+    padding: 7px 11px;
+    cursor: pointer;
+}
+
+.participants-delete-persona:hover {
+    filter: brightness(1.08);
+}
+
 .participants-editor-autosave {
     color: #8db8d5;
     font-size: 0.82rem;
