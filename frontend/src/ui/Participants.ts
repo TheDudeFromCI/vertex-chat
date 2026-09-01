@@ -347,6 +347,10 @@ export class Participants {
         ].join('')
         this.modalEditor.appendChild(metadata)
 
+        const footer = document.createElement('div')
+        footer.classList.add('participants-editor-footer')
+        this.modalEditor.appendChild(footer)
+
         const deleteButton = document.createElement('button')
         deleteButton.type = 'button'
         deleteButton.classList.add('participants-delete-persona')
@@ -354,16 +358,11 @@ export class Participants {
         deleteButton.addEventListener('click', async () => {
             await this.deleteSelectedPersona(selected.id, selected.name)
         })
-        this.modalEditor.appendChild(deleteButton)
-
-        const autosaveHint = document.createElement('div')
-        autosaveHint.classList.add('participants-editor-autosave')
-        autosaveHint.textContent = 'Changes autosave shortly after you stop typing.'
-        this.modalEditor.appendChild(autosaveHint)
+        footer.appendChild(deleteButton)
 
         const saveIndicator = document.createElement('div')
         saveIndicator.classList.add('participants-editor-save-indicator')
-        this.modalEditor.appendChild(saveIndicator)
+        footer.appendChild(saveIndicator)
         this.modalSaveIndicator = saveIndicator
         this.renderSaveIndicator()
     }
