@@ -3,7 +3,7 @@ import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
 import { Header } from './ui/Header.js'
-import { createMessage, updateMessage } from './api/ConversationsAPI.js'
+import { createMessage, deleteConversation, renameConversation, updateMessage } from './api/ConversationsAPI.js'
 import { generateMessageContent } from './api/ChatGenerationAPI.js'
 import { ChatManager } from './impl/Chat.js'
 import { PersonaCache } from './impl/Personas.js'
@@ -62,6 +62,22 @@ export class App {
         this._conversationId = conversationId
         await this.chatHistory.reloadConversation()
         await this.contextPanel.reloadParticipants()
+    }
+
+    async deleteConversation(conversationId: Uuid): Promise<void> {
+        if (this._conversationId === conversationId) {
+            this._conversationId = null
+        }
+
+        await deleteConversation(conversationId)
+        await this.chatHistory.reloadConversation()
+        await this.contextPanel.reloadParticipants()
+        await this.workspaces.reloadWorkspaces()
+    }
+
+    async renameConversation(conversationId: Uuid, newName: string): Promise<void> {
+        await renameConversation(conversationId, newName)
+        await this.workspaces.reloadWorkspaces()
     }
 
     async sendMessage(

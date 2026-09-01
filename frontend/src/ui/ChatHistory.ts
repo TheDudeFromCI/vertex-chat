@@ -269,13 +269,9 @@ export class ChatHistory {
         this.scrollToBottom()
     }
 
-    private async fetchActiveConversation(): Promise<Conversation> {
+    private async fetchActiveConversation(): Promise<Conversation | null> {
         const conversationId = this.app.conversationId
-
-        if (!conversationId) {
-            throw new Error('No active conversation ID found.')
-        }
-
+        if (!conversationId) return null
         return await fetchConversation(conversationId)
     }
 

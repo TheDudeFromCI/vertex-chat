@@ -73,3 +73,27 @@ export async function updateConversationParticipants(conversationId: Uuid, parti
         throw new Error(`Failed to update conversation participants: ${errorResponse['error']}`)
     }
 }
+
+export async function deleteConversation(conversationId: Uuid): Promise<void> {
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'DELETE',
+    })
+    if (!response.ok) {
+        console.error('Failed to delete conversation:', response.statusText)
+        return
+    }
+}
+
+export async function renameConversation(conversationId: Uuid, newName: string): Promise<void> {
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: newName }),
+    })
+    if (!response.ok) {
+        console.error('Failed to rename conversation:', response.statusText)
+        return
+    }
+}

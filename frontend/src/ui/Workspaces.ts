@@ -32,7 +32,7 @@ export class ConversationEntry {
             event.stopPropagation()
             const newName = prompt('Enter a new name for the conversation:', this.conversation.name)
             if (newName && newName.trim() !== '' && newName !== this.conversation.name) {
-                await this.renameConversation(newName.trim())
+                await this.app.renameConversation(this.conversation.conversationId, newName.trim())
             }
         })
         header.appendChild(editButton)
@@ -47,7 +47,7 @@ export class ConversationEntry {
             if (!confirmed) {
                 return
             }
-            await this.deleteConversation()
+            await this.app.deleteConversation(this.conversation.conversationId)
         })
         header.appendChild(deleteButton)
 
@@ -56,49 +56,6 @@ export class ConversationEntry {
             await this.app.loadConversation(this.conversation.conversationId)
         })
         return header
-    }
-
-    private async deleteConversation(): Promise<void> {
-        console.log(`Deleting conversation: ${this.conversation.name} (ID: ${this.conversation.conversationId})`)
-        try {
-            const response = await fetch(`/api/conversations/${this.conversation.conversationId}`, {
-                method: 'DELETE',
-            })
-            if (!response.ok) {
-                console.error('Failed to delete conversation:', response.statusText)
-                return
-            }
-
-            if (this.app.conversationId === this.conversation.conversationId) {
-                await this.app.loadConversation(null)
-            }
-
-            await this.app.reloadWorkspaces()
-        } catch (error) {
-            console.error('Error deleting conversation:', error)
-        }
-    }
-
-    private async renameConversation(newName: string): Promise<void> {
-        console.log(
-            `Renaming conversation: ${this.conversation.name} (ID: ${this.conversation.conversationId}) to "${newName}"`,
-        )
-        try {
-            const response = await fetch(`/api/conversations/${this.conversation.conversationId}`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ name: newName }),
-            })
-            if (!response.ok) {
-                console.error('Failed to rename conversation:', response.statusText)
-                return
-            }
-            await this.app.reloadWorkspaces()
-        } catch (error) {
-            console.error('Error renaming conversation:', error)
-        }
     }
 }
 
