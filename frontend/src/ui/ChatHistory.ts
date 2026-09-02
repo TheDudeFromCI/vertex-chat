@@ -178,6 +178,7 @@ export class ChatMessage {
     public profilePictureUrl: string
     public personaName: string
     public element: HTMLDivElement | null = null
+    public expandSectionsByDefault = false
     private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
 
     constructor(
@@ -290,6 +291,9 @@ export class ChatMessage {
     private buildCollapsibleSection(title: string, content: string, kind: MessageSectionKind): HTMLDetailsElement {
         const details = document.createElement('details')
         details.classList.add('chat-message-section', `chat-message-section-${kind}`)
+        if (this.expandSectionsByDefault) {
+            details.open = true
+        }
 
         const summary = document.createElement('summary')
         summary.classList.add('chat-message-section-summary')
@@ -419,6 +423,10 @@ export class ChatHistory {
             isLeftAligned,
             this.confirmAndDeleteMessage.bind(this),
         )
+
+        if (message.content.length === 0) {
+            chatMessage.expandSectionsByDefault = true
+        }
 
         this.messages.push(chatMessage)
         if (this.container) {
