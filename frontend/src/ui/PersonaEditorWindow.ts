@@ -32,6 +32,7 @@ export class PersonaEditorWindow {
     private modalSaveIndicator: HTMLDivElement | null = null
     private autosaveTimer: number | null = null
     private autosaveState: 'saved' | 'saving' | 'error' = 'saved'
+    private autosaveRevision = 0
 
     constructor(dependencies: PersonaEditorWindowDependencies) {
         this.app = dependencies.app
@@ -304,7 +305,10 @@ export class PersonaEditorWindow {
             clearTimeout(this.autosaveTimer)
         }
 
+        const revision = ++this.autosaveRevision
+
         this.autosaveTimer = window.setTimeout(async () => {
+            this.autosaveTimer = null
             const persona = this.modalPersonas.find((entry) => entry.id === personaId)
             if (!persona) {
                 return
@@ -315,17 +319,30 @@ export class PersonaEditorWindow {
                     name: persona.name,
                     prompt: persona.prompt,
                 })
-                const index = this.modalPersonas.findIndex((entry) => entry.id === updated.id)
-                if (index >= 0) {
-                    this.modalPersonas[index] = updated
-                    this.modalSelectedPersonaId = updated.id
+
+                // Ignore stale autosave responses so only the latest edit updates local UI state.
+                if (revision !== this.autosaveRevision) {
+                    return
                 }
+
+                if (persona.id === updated.id) {
+                    persona.name = updated.name
+                    persona.prompt = updated.prompt
+                    persona.created = updated.created
+                    persona.updated = updated.updated
+                    persona.avatarUrl = updated.avatarUrl
+                }
+
+                this.modalSelectedPersonaId = updated.id
                 await this.app.reloadPersonas()
                 await this.onParticipantsChanged()
                 this.setAutosaveState('saved')
                 this.renderModalPersonaList()
-                this.renderModalEditor()
+                // this.renderModalEditor()
             } catch (error) {
+                if (revision !== this.autosaveRevision) {
+                    return
+                }
                 console.error('Failed to autosave persona changes:', error)
                 this.setAutosaveState('error')
                 this.setStatus('Autosave failed. Try again.')
