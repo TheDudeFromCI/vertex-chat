@@ -5,3 +5,4 @@ dist/
 database.db
 database.db-shm
 database.db-wal
+frontend/tsconfig.tsbuildinfo
