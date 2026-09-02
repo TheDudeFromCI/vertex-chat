@@ -29,14 +29,12 @@
 
 #chat-input-field {
     display: block;
-
-    bottom: 0;
-    width: calc(100% - 20px);
+    flex: 1;
+    width: auto;
     background-color: #1d2230;
-    margin-top: 10px;
-    padding: 10px 5px;
+    padding: 11px 10px;
     border-top: 1px solid #2c2f3a;
-    border-radius: 5px;
+    border-radius: 10px;
 
     color: #e2e8f0;
 
@@ -52,6 +50,11 @@
 #chat-input-field:focus {
     outline: none;
     border-color: #4a90e2;
+}
+
+.chat-input-field-disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
 }
 
 .chat-message-row {
@@ -288,7 +291,62 @@
 .chat-input-row {
     display: flex;
     flex-direction: row;
-    align-items: center;
-    gap: 10px;
+    align-items: flex-end;
+    gap: 8px;
     margin: 8px 5px;
+    padding: 8px;
+    border: 1px solid #2e3d50;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(28, 37, 53, 0.9), rgba(20, 28, 41, 0.95));
+}
+
+.chat-input-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid #3c536c;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #28455f, #20364b);
+    cursor: pointer;
+    transition:
+        transform 0.15s ease,
+        border-color 0.15s ease,
+        filter 0.15s ease,
+        background 0.15s ease;
+}
+
+.chat-input-button:hover {
+    transform: translateY(-1px);
+    border-color: #5f7f9e;
+    filter: brightness(1.05);
+}
+
+.chat-input-button:active {
+    transform: translateY(0);
+}
+
+.chat-input-button img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    filter: invert(1);
+}
+
+.chat-input-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    filter: grayscale(0.4);
+}
+
+#chat-generate-button.is-cancel {
+    border-color: #7c2020;
+    background: linear-gradient(180deg, #551515, #401010);
+}
+
+#chat-generate-button.is-cancel img {
+    filter: brightness(0) saturate(100%) invert(29%) sepia(98%) saturate(2450%) hue-rotate(339deg) brightness(102%)
+        contrast(100%);
 }

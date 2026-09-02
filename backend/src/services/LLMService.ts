@@ -31,6 +31,10 @@ interface PreparedRequest {
 
 export type ChatStreamCallback = (response: MessageContent) => void
 
+const isAbortError = (error: unknown): boolean => {
+    return error instanceof DOMException && error.name === 'AbortError'
+}
+
 export class LLMService {
     private readonly model: string
     private readonly baseUrl: string
@@ -68,7 +72,11 @@ export class LLMService {
         this.tools.push(tool)
     }
 
-    async chatCompletion(request: ChatCompletionRequest, callback?: ChatStreamCallback): Promise<MessageContent> {
+    async chatCompletion(
+        request: ChatCompletionRequest,
+        callback?: ChatStreamCallback,
+        signal?: AbortSignal,
+    ): Promise<MessageContent> {
         const response: MessageContent = []
         let lastPush = 0
 
@@ -94,20 +102,28 @@ export class LLMService {
         }
 
         outerLoop: while (true) {
-            const optimizedRequest = await this.optimizeTokenCount(request)
+            if (signal?.aborted) {
+                throw new DOMException('Request aborted', 'AbortError')
+            }
+
+            const optimizedRequest = await this.optimizeTokenCount(request, signal)
             if (!optimizedRequest) {
                 throw new Error('Failed to optimize token count for the request.')
             }
 
             const preparedRequest = await this.prepareRequest(optimizedRequest)
-            const stream = await fetch(`${this.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${this.apiKey}`,
+            const stream = await this.fetchWithAbort(
+                `${this.baseUrl}/chat/completions`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${this.apiKey}`,
+                    },
+                    body: JSON.stringify(preparedRequest),
                 },
-                body: JSON.stringify(preparedRequest),
-            })
+                signal,
+            )
 
             if (!stream.ok) {
                 const errorResponse = await stream.json()
@@ -122,6 +138,10 @@ export class LLMService {
             let toolArgsBuffer = ''
 
             while (true) {
+                if (signal?.aborted) {
+                    throw new DOMException('Request aborted', 'AbortError')
+                }
+
                 const { value, done } = await reader.read()
                 if (done) break
 
@@ -197,7 +217,25 @@ export class LLMService {
         return response
     }
 
-    private async optimizeTokenCount(request: ChatCompletionRequest): Promise<ChatCompletionRequest> {
+    private async fetchWithAbort(input: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+        try {
+            return await fetch(input, {
+                ...init,
+                signal,
+            })
+        } catch (error) {
+            if (isAbortError(error)) {
+                throw error
+            }
+
+            throw error
+        }
+    }
+
+    private async optimizeTokenCount(
+        request: ChatCompletionRequest,
+        signal?: AbortSignal,
+    ): Promise<ChatCompletionRequest> {
         const budget = this.maxTokens - this.maxOutputTokens
 
         if (budget <= 0) {
@@ -210,10 +248,13 @@ export class LLMService {
 
         const countTokensForSuffix = async (suffixLength: number): Promise<number> => {
             const start = Math.max(0, request.messages.length - suffixLength)
-            return await this.countTokens({
-                messages: request.messages.slice(start),
-                prompt: request.prompt,
-            })
+            return await this.countTokens(
+                {
+                    messages: request.messages.slice(start),
+                    prompt: request.prompt,
+                },
+                signal,
+            )
         }
 
         try {
@@ -242,6 +283,10 @@ export class LLMService {
                 messages: request.messages.slice(request.messages.length - low),
             }
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error
+            }
+
             console.error('Failed to get token count from LLMService:', error)
             throw new Error('Failed to get token count from LLMService: ' + error)
         }
@@ -265,20 +310,24 @@ export class LLMService {
         return data.data.map((model: { id: string }) => model.id)
     }
 
-    private async countTokens(request: ChatCompletionRequest): Promise<number> {
+    private async countTokens(request: ChatCompletionRequest, signal?: AbortSignal): Promise<number> {
         if (request.messages.length === 0) {
             return 0
         }
 
         const preparedRequest = await this.prepareRequest(request)
-        const response = await fetch(`${this.baseUrl}/chat/completions/input_tokens`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${this.apiKey}`,
+        const response = await this.fetchWithAbort(
+            `${this.baseUrl}/chat/completions/input_tokens`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${this.apiKey}`,
+                },
+                body: JSON.stringify(preparedRequest),
             },
-            body: JSON.stringify(preparedRequest),
-        })
+            signal,
+        )
 
         if (!response.ok) {
             const errorResponse = await response.json()

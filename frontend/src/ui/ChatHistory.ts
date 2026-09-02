@@ -8,12 +8,21 @@ import MarkdownIt from 'markdown-it'
 
 const DEFAULT_PROFILE_PICTURE = new URL('../../icons/default-pfp.png', import.meta.url).href
 const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
+const SEND_SYMBOL = new URL('../../icons/send.png', import.meta.url).href
+const GENERATE_SYMBOL = new URL('../../icons/generate.png', import.meta.url).href
+const CLOSE_SYMBOL = new URL('../../icons/close.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
 type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response'
 
 export class InputBox {
     private readonly app: App
+    private input: HTMLDivElement | null = null
+    private sendButton: HTMLButtonElement | null = null
+    private generateButton: HTMLButtonElement | null = null
+    private generateIcon: HTMLImageElement | null = null
+    private isGenerating = false
+    private generationAbortController: AbortController | null = null
 
     constructor(app: App) {
         this.app = app
@@ -27,12 +36,27 @@ export class InputBox {
         input.setAttribute('placeholder', 'Type your message...')
         input.setAttribute('contenteditable', 'true')
         input.id = 'chat-input-field'
+        this.input = input
         div.appendChild(input)
 
         const sendButton = document.createElement('button')
         sendButton.id = 'chat-send-button'
-        sendButton.textContent = 'Send'
+        sendButton.type = 'button'
+        sendButton.classList.add('chat-input-button')
+        sendButton.setAttribute('aria-label', 'Send message')
+        sendButton.title = 'Send message'
+
+        const sendIcon = document.createElement('img')
+        sendIcon.src = SEND_SYMBOL
+        sendIcon.alt = ''
+        sendButton.appendChild(sendIcon)
+        this.sendButton = sendButton
+
         sendButton.addEventListener('click', async () => {
+            if (this.isGenerating) {
+                return
+            }
+
             const messageText = input.textContent?.trim()
             if (!messageText) return
 
@@ -64,8 +88,25 @@ export class InputBox {
 
         const generateButton = document.createElement('button')
         generateButton.id = 'chat-generate-button'
-        generateButton.textContent = 'Generate'
+        generateButton.type = 'button'
+        generateButton.classList.add('chat-input-button')
+        generateButton.setAttribute('aria-label', 'Generate response')
+        generateButton.title = 'Generate response'
+
+        const generateIcon = document.createElement('img')
+        generateIcon.src = GENERATE_SYMBOL
+        generateIcon.alt = ''
+        generateButton.appendChild(generateIcon)
+
+        this.generateButton = generateButton
+        this.generateIcon = generateIcon
+
         generateButton.addEventListener('click', async () => {
+            if (this.isGenerating) {
+                this.cancelGeneration()
+                return
+            }
+
             const userId = this.app.userId
             if (!userId) {
                 alert('Profile not selected. Please select a profile before generating messages.')
@@ -78,17 +119,55 @@ export class InputBox {
                 return
             }
 
+            this.generationAbortController = new AbortController()
+            this.setGenerationState(true)
+
             try {
-                await this.app.generateAgentMessage(conversationId, userId)
+                await this.app.generateAgentMessage(conversationId, userId, this.generationAbortController.signal)
             } catch (error) {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                    return
+                }
+
                 console.error('Error generating message:', error)
                 alert('Failed to generate message. Please try again.')
                 return
+            } finally {
+                this.generationAbortController = null
+                this.setGenerationState(false)
             }
         })
         div.appendChild(generateButton)
 
         return div
+    }
+
+    private cancelGeneration(): void {
+        // Frontend placeholder cancel until backend cancellation semantics are implemented.
+        this.generationAbortController?.abort()
+    }
+
+    private setGenerationState(generating: boolean): void {
+        this.isGenerating = generating
+
+        if (this.input) {
+            this.input.setAttribute('contenteditable', generating ? 'false' : 'true')
+            this.input.classList.toggle('chat-input-field-disabled', generating)
+        }
+
+        if (this.sendButton) {
+            this.sendButton.disabled = generating
+        }
+
+        if (this.generateButton) {
+            this.generateButton.classList.toggle('is-cancel', generating)
+            this.generateButton.setAttribute('aria-label', generating ? 'Cancel generation' : 'Generate response')
+            this.generateButton.title = generating ? 'Cancel generation' : 'Generate response'
+        }
+
+        if (this.generateIcon) {
+            this.generateIcon.src = generating ? CLOSE_SYMBOL : GENERATE_SYMBOL
+        }
     }
 }
 

@@ -5,6 +5,7 @@ export type StreamedMessageHandler = (message: MessageContent) => Promise<void>
 export async function generateMessageContent(
     request: ChatCompletionRequest,
     callback?: StreamedMessageHandler,
+    signal?: AbortSignal,
 ): Promise<MessageContent> {
     const response = await fetch('/api/llm/chat', {
         method: 'POST',
@@ -12,6 +13,7 @@ export async function generateMessageContent(
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(request),
+        signal,
     })
 
     if (!response.ok) {

@@ -96,7 +96,7 @@ export class App {
         await this.chatHistory.removeMessage(messageId)
     }
 
-    async generateAgentMessage(conversationId: Uuid, agentId: Uuid): Promise<void> {
+    async generateAgentMessage(conversationId: Uuid, agentId: Uuid, signal?: AbortSignal): Promise<void> {
         const messagePlaceholder = await this.sendMessage(conversationId, agentId, [])
         const request = await this.chatManager.generateChatCompletionRequest(conversationId, agentId)
 
@@ -105,9 +105,14 @@ export class App {
             await this.chatHistory.updateMessage(messagePlaceholder.id, messageContent)
         }
 
-        const generated = await generateMessageContent(request, callback)
-        await updateMessage(messagePlaceholder.id, generated)
-        await this.chatHistory.updateMessage(messagePlaceholder.id, generated)
+        try {
+            const generated = await generateMessageContent(request, callback, signal)
+            await updateMessage(messagePlaceholder.id, generated)
+            await this.chatHistory.updateMessage(messagePlaceholder.id, generated)
+        } catch (error) {
+            await this.deleteMessage(messagePlaceholder.id)
+            throw error
+        }
     }
 
     async setUserId(userId: Uuid | null): Promise<void> {

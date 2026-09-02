@@ -464,21 +464,52 @@ app.post('/api/llm/chat', async (req: Request, res: Response) => {
     const body = req.body as ChatCompletionRequest
     console.log('Received request for LLM chat completion with messages:', body)
 
+    const generationAbortController = new AbortController()
+    const abortGeneration = () => {
+        generationAbortController.abort()
+    }
+
+    req.on('aborted', abortGeneration)
+    res.on('close', abortGeneration)
+
     res.setHeader('Content-Type', 'application/x-ndjson')
     res.setHeader('Transfer-Encoding', 'chunked')
 
     try {
         const callback = (response: MessageContent) => {
+            if (generationAbortController.signal.aborted || res.writableEnded || res.destroyed) {
+                return
+            }
+
             res.write(JSON.stringify(response) + '\n')
         }
 
-        await llmService.chatCompletion(body, callback)
-        res.end()
+        await llmService.chatCompletion(body, callback, generationAbortController.signal)
+        if (!res.writableEnded && !res.destroyed) {
+            res.end()
+        }
     } catch (error) {
+        if (generationAbortController.signal.aborted) {
+            if (!res.writableEnded && !res.destroyed) {
+                res.end()
+            }
+            return
+        }
+
         console.error('Error during LLM chat completion:', error)
-        res.status(500).json({
-            error: `LLM chat completion failed: ${error instanceof Error ? error.message : String(error)}`,
-        })
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: `LLM chat completion failed: ${error instanceof Error ? error.message : String(error)}`,
+            })
+            return
+        }
+
+        if (!res.writableEnded && !res.destroyed) {
+            res.end()
+        }
+    } finally {
+        req.off('aborted', abortGeneration)
+        res.off('close', abortGeneration)
     }
 })
 
