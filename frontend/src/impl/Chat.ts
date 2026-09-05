@@ -1,4 +1,4 @@
-import type { ChatCompletionMessage, ChatCompletionRequest, Uuid } from 'vertex-common'
+import type { ChatCompletionContentPart, ChatCompletionMessage, ChatCompletionRequest, Uuid } from 'vertex-common'
 import { fetchConversation } from '../api/ConversationsAPI'
 import type { App } from '../App'
 
@@ -46,14 +46,48 @@ export class ChatManager {
                 messages.push({ role: 'assistant', content: text, thinking: thinking ?? null })
             } else {
                 const name = await getPersonaName(msg.sender)
+                const contentParts: ChatCompletionContentPart[] = []
 
                 for (const block of msg.content) {
                     if (block.type === 'text') {
                         const content = block.content.trim()
                         if (!content) continue
-                        messages.push({ role: 'user', content: `${name}: ${content}` })
+                        contentParts.push({
+                            type: 'text',
+                            text: `${name}: ${content}`,
+                        })
+                    }
+
+                    if (block.type === 'image') {
+                        contentParts.push({
+                            type: 'image_url',
+                            image_url: {
+                                url: block.content,
+                            },
+                        })
+                    }
+
+                    if (block.type === 'file_attachment') {
+                        const attachmentName = block.name ?? 'attachment'
+                        contentParts.push({
+                            type: 'text',
+                            text: `${name} attached file: ${attachmentName}`,
+                        })
+                        contentParts.push({
+                            type: 'file',
+                            file: {
+                                filename: attachmentName,
+                                file_data: block.content,
+                            },
+                        })
                     }
                 }
+
+                if (contentParts.length === 0) continue
+                messages.push({
+                    role: 'user',
+                    content: contentParts,
+                })
             }
         }
 

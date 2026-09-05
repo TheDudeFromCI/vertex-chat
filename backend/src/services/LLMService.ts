@@ -407,10 +407,38 @@ export class LLMService {
         }
 
         for (const message of request.messages) {
-            messages.push({
-                role: message.role,
-                content: message.content,
-            })
+            if (Array.isArray(message.content)) {
+                messages.push({
+                    role: message.role,
+                    content: message.content.map((part) => {
+                        if (part.type === 'image_url') {
+                            return {
+                                type: 'image_url',
+                                image_url: {
+                                    url: part.image_url.url,
+                                },
+                            }
+                        }
+
+                        if (part.type === 'file') {
+                            return {
+                                type: 'text',
+                                text: `Attached file: ${part.file.filename ?? 'unnamed'}\n\`\`\`${part.file.file_data}\`\`\``,
+                            }
+                        }
+
+                        return {
+                            type: 'text',
+                            text: part.text,
+                        }
+                    }),
+                })
+            } else {
+                messages.push({
+                    role: message.role,
+                    content: message.content,
+                })
+            }
         }
 
         const tools = this.tools.map((tool) => ({

@@ -21,9 +21,17 @@ const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
 const SEND_SYMBOL = new URL('../../icons/send.png', import.meta.url).href
 const GENERATE_SYMBOL = new URL('../../icons/generate.png', import.meta.url).href
 const CLOSE_SYMBOL = new URL('../../icons/close.png', import.meta.url).href
+const ATTACH_SYMBOL = new URL('../../icons/plus.png', import.meta.url).href
+const TEXT_FILE_SYMBOL = new URL('../../icons/text.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
 type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response'
+
+type ChatAttachment = {
+    type: 'image' | 'file_attachment'
+    name: string
+    content: string
+}
 
 export class InputBox {
     private readonly app: App
@@ -31,6 +39,8 @@ export class InputBox {
     private sendButton: HTMLButtonElement | null = null
     private generateButton: HTMLButtonElement | null = null
     private generateIcon: HTMLImageElement | null = null
+    private attachments: ChatAttachment[] = []
+    private attachmentPreview: HTMLDivElement | null = null
     private isGenerating = false
     private generationAbortController: AbortController | null = null
 
@@ -39,8 +49,12 @@ export class InputBox {
     }
 
     build(): HTMLDivElement {
+        const container = document.createElement('div')
+        container.classList.add('chat-input-composer')
+
         const div = document.createElement('div')
         div.classList.add('chat-input-row')
+        container.appendChild(div)
 
         const input = document.createElement('div')
         input.setAttribute('placeholder', 'Type your message...')
@@ -48,6 +62,35 @@ export class InputBox {
         input.id = 'chat-input-field'
         this.input = input
         div.appendChild(input)
+
+        const attachButton = document.createElement('button')
+        attachButton.type = 'button'
+        attachButton.classList.add('chat-input-button')
+        attachButton.setAttribute('aria-label', 'Attach file')
+        attachButton.title = 'Attach file'
+
+        const attachIcon = document.createElement('img')
+        attachIcon.src = ATTACH_SYMBOL
+        attachIcon.alt = ''
+        attachButton.appendChild(attachIcon)
+
+        const fileInput = document.createElement('input')
+        fileInput.type = 'file'
+        fileInput.multiple = true
+        fileInput.style.display = 'none'
+        fileInput.addEventListener('change', async () => {
+            const files = Array.from(fileInput.files ?? [])
+            if (!files.length) return
+
+            const attachments = await Promise.all(files.map((file) => this.readFileAttachment(file)))
+            this.attachments.push(...attachments)
+            this.renderAttachmentPreviews()
+            fileInput.value = ''
+        })
+        attachButton.addEventListener('click', () => {
+            fileInput.click()
+        })
+        div.appendChild(attachButton)
 
         const sendButton = document.createElement('button')
         sendButton.id = 'chat-send-button'
@@ -67,10 +110,21 @@ export class InputBox {
                 return
             }
 
-            const messageText = input.textContent?.trim()
-            if (!messageText) return
+            const messageText = input.textContent?.trim() ?? ''
+            if (!messageText && this.attachments.length === 0) return
 
-            const messageContent = [{ type: 'text', content: messageText }] as MessageContent
+            const messageContent: MessageContent = []
+            if (messageText) {
+                messageContent.push({ type: 'text', content: messageText })
+            }
+
+            for (const attachment of this.attachments) {
+                messageContent.push({
+                    type: attachment.type,
+                    content: attachment.content,
+                    name: attachment.name,
+                })
+            }
 
             const userId = this.app.userId
             if (!userId) {
@@ -85,9 +139,10 @@ export class InputBox {
             }
 
             input.textContent = ''
+            this.clearAttachments()
 
             try {
-                await this.app.sendMessage(this.app.conversationId!, userId, messageContent)
+                await this.app.sendMessage(conversationId, userId, messageContent)
             } catch (error) {
                 console.error('Error sending message:', error)
                 alert('Failed to send message. Please try again.')
@@ -149,7 +204,126 @@ export class InputBox {
         })
         div.appendChild(generateButton)
 
-        return div
+        const preview = document.createElement('div')
+        preview.classList.add('chat-input-attachments')
+        this.attachmentPreview = preview
+        container.appendChild(preview)
+        this.renderAttachmentPreviews()
+
+        return container
+    }
+
+    private async readFileAttachment(file: File): Promise<ChatAttachment> {
+        if (file.type.startsWith('image/')) {
+            return {
+                type: 'image',
+                name: file.name,
+                content: await this.convertImageToPng(file),
+            }
+        }
+
+        return {
+            type: 'file_attachment',
+            name: file.name,
+            content: await this.readFileAsDataUrl(file),
+        }
+    }
+
+    private async readFileAsDataUrl(file: File): Promise<string> {
+        return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+                if (typeof reader.result === 'string') {
+                    resolve(reader.result)
+                    return
+                }
+                reject(new Error(`Failed to read ${file.name}`))
+            }
+            reader.onerror = () => reject(new Error(`Failed to read ${file.name}`))
+            reader.readAsDataURL(file)
+        })
+    }
+
+    private async convertImageToPng(file: File): Promise<string> {
+        const sourceUrl = await this.readFileAsDataUrl(file)
+
+        return await new Promise<string>((resolve, reject) => {
+            const image = new Image()
+            image.onload = () => {
+                const canvas = document.createElement('canvas')
+                canvas.width = image.naturalWidth
+                canvas.height = image.naturalHeight
+
+                const context = canvas.getContext('2d')
+                if (!context) {
+                    reject(new Error('Canvas is not supported in this browser.'))
+                    return
+                }
+
+                context.drawImage(image, 0, 0)
+                resolve(canvas.toDataURL('image/png'))
+            }
+            image.onerror = () => reject(new Error(`Failed to convert ${file.name} to PNG`))
+            image.src = sourceUrl
+        })
+    }
+
+    private clearAttachments(): void {
+        this.attachments = []
+        this.renderAttachmentPreviews()
+    }
+
+    private renderAttachmentPreviews(): void {
+        if (!this.attachmentPreview) return
+
+        this.attachmentPreview.replaceChildren()
+
+        if (this.attachments.length === 0) {
+            this.attachmentPreview.classList.remove('visible')
+            return
+        }
+
+        this.attachmentPreview.classList.add('visible')
+
+        for (const attachment of this.attachments) {
+            const item = document.createElement('div')
+            item.classList.add('chat-input-attachment')
+
+            const preview = document.createElement('div')
+            preview.classList.add('chat-input-attachment-preview')
+
+            if (attachment.type === 'image') {
+                const previewImage = document.createElement('img')
+                previewImage.src = attachment.content
+                previewImage.alt = attachment.name
+                previewImage.loading = 'lazy'
+                preview.appendChild(previewImage)
+            } else {
+                const fileIcon = document.createElement('img')
+                fileIcon.src = TEXT_FILE_SYMBOL
+                fileIcon.alt = attachment.name
+                preview.appendChild(fileIcon)
+            }
+
+            const name = document.createElement('span')
+            name.classList.add('chat-input-attachment-name')
+            name.textContent = attachment.name
+            item.appendChild(preview)
+            item.appendChild(name)
+
+            const removeButton = document.createElement('button')
+            removeButton.type = 'button'
+            removeButton.classList.add('chat-input-attachment-remove')
+            removeButton.setAttribute('aria-label', `Remove ${attachment.name}`)
+            removeButton.title = `Remove ${attachment.name}`
+            removeButton.textContent = '×'
+            removeButton.addEventListener('click', () => {
+                this.attachments = this.attachments.filter((current) => current !== attachment)
+                this.renderAttachmentPreviews()
+            })
+            item.appendChild(removeButton)
+            this.attachmentPreview.appendChild(item)
+        }
     }
 
     private cancelGeneration(): void {
@@ -290,6 +464,16 @@ export class ChatMessage {
                 this.contentBlockUpdaters.push(updateBlockDiv)
                 break
 
+            case 'image':
+                this.messageContent!.appendChild(this.buildImageBlock(block.content, block.name ?? 'Uploaded image'))
+                break
+
+            case 'file_attachment':
+                this.messageContent!.appendChild(
+                    this.buildFileAttachmentBlock(block.content, block.name ?? 'Attached file'),
+                )
+                break
+
             case 'thinking':
                 const [thinkingBlockDiv, updateThinkingBlockDiv] = this.buildCollapsibleSection(
                     'Thinking',
@@ -418,6 +602,37 @@ export class ChatMessage {
         }
 
         this.permissionRequestRows.set(request.requestId, row)
+    }
+
+    private buildImageBlock(content: string, name: string): HTMLDivElement {
+        const block = document.createElement('div')
+        block.classList.add('chat-message-attachment', 'chat-message-image')
+
+        const image = document.createElement('img')
+        image.src = content
+        image.alt = name
+        image.loading = 'lazy'
+        block.appendChild(image)
+
+        return block
+    }
+
+    private buildFileAttachmentBlock(content: string, name: string): HTMLDivElement {
+        const block = document.createElement('div')
+        block.classList.add('chat-message-attachment', 'chat-message-file')
+
+        const icon = document.createElement('img')
+        icon.src = TEXT_FILE_SYMBOL
+        icon.alt = name
+        block.appendChild(icon)
+
+        const label = document.createElement('a')
+        label.href = content
+        label.download = name
+        label.textContent = name
+        block.appendChild(label)
+
+        return block
     }
 
     private buildMarkdownBlock(content: string, ...classNames: string[]): [HTMLDivElement, (content: string) => void] {

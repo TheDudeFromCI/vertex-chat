@@ -20,10 +20,11 @@ export interface Message {
 }
 
 export type MessageContent = MessageContentBlock[]
-export type MessageContentBlockType = 'text' | 'thinking' | 'tool_call' | 'tool_response'
+export type MessageContentBlockType = 'text' | 'thinking' | 'tool_call' | 'tool_response' | 'image' | 'file_attachment'
 export interface MessageContentBlock {
     type: MessageContentBlockType
     content: string
+    name?: string
 }
 
 export interface StreamedMessageContent {
@@ -75,11 +76,37 @@ export interface ChatCompletionRequest {
     messages: ChatCompletionMessage[]
 }
 
+export interface ChatCompletionContentTextPart {
+    type: 'text'
+    text: string
+}
+
+export interface ChatCompletionContentImagePart {
+    type: 'image_url'
+    image_url: {
+        url: string
+    }
+}
+
+export interface ChatCompletionContentFilePart {
+    type: 'file'
+    file: {
+        filename?: string
+        file_data: string
+    }
+}
+
+export type ChatCompletionContentPart =
+    | ChatCompletionContentTextPart
+    | ChatCompletionContentImagePart
+    | ChatCompletionContentFilePart
+export type ChatCompletionMessageContent = string | ChatCompletionContentPart[]
+
 export type ChatCompletionMessage = ChatCompletionMessageUser | ChatCompletionMessageAssistant | ChatCompletionToolCall
 
 export interface ChatCompletionMessageUser {
     role: 'user'
-    content: string
+    content: ChatCompletionMessageContent
 }
 
 export interface ChatCompletionMessageAssistant {
