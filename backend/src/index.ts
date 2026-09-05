@@ -10,6 +10,7 @@ import { PersonaStore } from './services/PersonaStore.js'
 import { LLMService } from './services/LLMService.js'
 
 import timeTool from './tools/Time.js'
+import { buildFileTools, parseAllowedDirectories } from './tools/FileSystem.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = join(__dirname, '..', '..', '..')
@@ -69,7 +70,19 @@ llmService.setToolPermissionHandler(async (request, signal) => {
     })
 })
 
+// Register Tools
+const allowedDirectories = parseAllowedDirectories(process.env['DIRECTORIES'])
+const fileTools = buildFileTools(allowedDirectories)
+
 llmService.registerTool(timeTool)
+llmService.registerTool(fileTools.baseDirectories)
+llmService.registerTool(fileTools.listDirectory)
+llmService.registerTool(fileTools.readFile)
+llmService.registerTool(fileTools.createFile)
+llmService.registerTool(fileTools.updateFile)
+llmService.registerTool(fileTools.deleteFile)
+llmService.registerTool(fileTools.createFolder)
+llmService.registerTool(fileTools.renameFile)
 
 // Middleware
 app.use(express.json({ limit: '10mb' }))

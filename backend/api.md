@@ -12,6 +12,7 @@ Environment variables:
 
 - `HOST` (default: `127.0.0.1`)
 - `PORT` (default: `8000`)
+- `DIRECTORIES` (optional; semicolon-separated list of directories the backend may access for file tools, e.g. `/workspace;/tmp/projects`)
 
 All API routes are under the `/api` prefix.
 
