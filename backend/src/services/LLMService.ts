@@ -2,8 +2,10 @@ import type {
     ChatCompletionRequest,
     MessageContent,
     MessageContentBlockType,
-    StreamedMessageContent,
+    StreamedLLMEvent,
+    ToolPermissionRequest,
 } from 'vertex-common'
+import { randomUUID } from 'crypto'
 
 export interface LLMServiceOptions {
     apiKey: string
@@ -16,6 +18,7 @@ export interface Tool {
     name: string
     description: string
     params: ToolParam[]
+    needsPermission: boolean
     execute: (args: Record<string, unknown>) => Promise<string>
 }
 
@@ -34,7 +37,8 @@ interface PreparedRequest {
     temperature?: number
 }
 
-export type ChatStreamCallback = (response: StreamedMessageContent) => void
+export type ChatStreamCallback = (response: StreamedLLMEvent) => void
+export type ToolPermissionHandler = (request: ToolPermissionRequest, signal?: AbortSignal) => Promise<boolean>
 
 const isAbortError = (error: unknown): boolean => {
     return error instanceof DOMException && error.name === 'AbortError'
@@ -45,6 +49,7 @@ export class LLMService {
     private readonly baseUrl: string
     private readonly apiKey: string
     private readonly tools: Tool[] = []
+    private permissionHandler: ToolPermissionHandler | null = null
     public temperature: number | null = null
     public maxTokens: number
     public maxOutputTokens: number
@@ -75,6 +80,10 @@ export class LLMService {
 
     registerTool(tool: Tool): void {
         this.tools.push(tool)
+    }
+
+    setToolPermissionHandler(handler: ToolPermissionHandler): void {
+        this.permissionHandler = handler
     }
 
     async chatCompletion(
@@ -198,25 +207,54 @@ export class LLMService {
                             const toolIndex = 0
 
                             const argsJson = JSON.parse(toolBuffers[toolIndex]!.args)
-                            appendFragment(
-                                JSON.stringify({ tool: toolBuffers[toolIndex]!.name, args: argsJson }, null, 2),
-                                'tool_call',
-                            )
+                            const toolName = toolBuffers[toolIndex]!.name
+                            appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
 
                             try {
-                                const toolResult = await this.executeToolCall(toolBuffers[toolIndex]!.name, argsJson)
+                                const tool = this.tools.find((t) => t.name === toolName)
+                                if (!tool) {
+                                    throw new Error(`Tool "${toolName}" not found.`)
+                                }
+
+                                if (tool.needsPermission) {
+                                    const permissionRequest: ToolPermissionRequest = {
+                                        type: 'tool_permission_request',
+                                        requestId: randomUUID(),
+                                        toolName,
+                                        args: argsJson,
+                                    }
+
+                                    callback?.(permissionRequest)
+
+                                    const allowed = await this.requestPermission(permissionRequest, signal)
+                                    if (!allowed) {
+                                        const deniedMessage = `Permission denied by user for tool "${toolName}".`
+                                        request.messages.push({
+                                            role: 'tool',
+                                            tool_call_id: toolName,
+                                            content: deniedMessage,
+                                        })
+                                        appendFragment(deniedMessage, 'tool_response')
+                                        continue outerLoop
+                                    }
+                                }
+
+                                const toolResult = await this.executeToolCall(toolName, argsJson)
                                 request.messages.push({
                                     role: 'tool',
-                                    tool_call_id: toolBuffers[toolIndex]!.name,
+                                    tool_call_id: toolName,
                                     content: toolResult,
                                 })
                                 appendFragment(toolResult, 'tool_response')
                             } catch (error) {
                                 console.error('Failed to execute tool call:', error)
-                                appendFragment(
-                                    `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                                    'tool_response',
-                                )
+                                const errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                request.messages.push({
+                                    role: 'tool',
+                                    tool_call_id: toolName,
+                                    content: errorMessage,
+                                })
+                                appendFragment(errorMessage, 'tool_response')
                             } finally {
                                 continue outerLoop
                             }
@@ -410,5 +448,13 @@ export class LLMService {
         }
 
         return await tool.execute(args)
+    }
+
+    private async requestPermission(request: ToolPermissionRequest, signal?: AbortSignal): Promise<boolean> {
+        if (!this.permissionHandler) {
+            throw new Error('Permission handler is not configured.')
+        }
+
+        return await this.permissionHandler(request, signal)
     }
 }

@@ -1,4 +1,4 @@
-import type { Message, MessageContent, Persona, StreamedMessageContent, Uuid } from 'vertex-common'
+import type { Message, MessageContent, Persona, StreamedLLMEvent, Uuid } from 'vertex-common'
 import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
@@ -100,9 +100,13 @@ export class App {
         const messagePlaceholder = await this.sendMessage(conversationId, agentId, [])
         const request = await this.chatManager.generateChatCompletionRequest(conversationId, agentId)
 
-        const callback = async (messageContent: StreamedMessageContent) => {
-            // await updateMessage(messagePlaceholder.id, messageContent)
-            await this.chatHistory.streamMessageContent(messagePlaceholder.id, messageContent)
+        const callback = async (event: StreamedLLMEvent) => {
+            if (event.type === 'tool_permission_request') {
+                await this.chatHistory.showToolPermissionRequest(messagePlaceholder.id, event)
+                return
+            }
+
+            await this.chatHistory.streamMessageContent(messagePlaceholder.id, event)
         }
 
         try {

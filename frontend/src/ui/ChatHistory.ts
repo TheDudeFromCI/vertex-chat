@@ -6,10 +6,12 @@ import type {
     MessageContentBlock,
     Persona,
     StreamedMessageContent,
+    ToolPermissionRequest,
     Uuid,
 } from 'vertex-common'
 
 import type { App } from '../App.js'
+import { submitToolPermissionDecision } from '../api/ChatGenerationAPI'
 import { fetchConversation } from '../api/ConversationsAPI'
 
 import MarkdownIt from 'markdown-it'
@@ -183,6 +185,8 @@ export class ChatMessage {
     private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
     private contentBlockUpdaters: ((newContent: string) => void)[] = []
     private messageContent: HTMLDivElement | null = null
+    private toolCallSections: HTMLDetailsElement[] = []
+    private permissionRequestRows: Map<string, HTMLDivElement> = new Map()
 
     public readonly id: Uuid
     public content: MessageContent
@@ -215,6 +219,8 @@ export class ChatMessage {
             this.element.replaceChildren()
         }
         this.contentBlockUpdaters = []
+        this.toolCallSections = []
+        this.permissionRequestRows.clear()
 
         const avatar = document.createElement('img')
         avatar.classList.add('chat-avatar')
@@ -303,6 +309,7 @@ export class ChatMessage {
                     expandDetails,
                 )
                 this.messageContent!.appendChild(toolCallBlockDiv)
+                this.toolCallSections.push(toolCallBlockDiv)
                 this.contentBlockUpdaters.push(updateToolCallBlockDiv)
                 break
 
@@ -344,6 +351,73 @@ export class ChatMessage {
         detailsElements.forEach((details) => {
             details.open = false
         })
+    }
+
+    showToolPermissionRequest(
+        request: ToolPermissionRequest,
+        onDecision: (requestId: string, allowed: boolean) => Promise<void>,
+    ): void {
+        if (!this.messageContent || this.permissionRequestRows.has(request.requestId)) {
+            return
+        }
+
+        const row = document.createElement('div')
+        row.classList.add('chat-tool-permission-row')
+
+        const text = document.createElement('p')
+        text.classList.add('chat-tool-permission-text')
+        text.textContent = `Allow tool \"${request.toolName}\" to run?`
+        row.appendChild(text)
+
+        const controls = document.createElement('div')
+        controls.classList.add('chat-tool-permission-controls')
+
+        const allowButton = document.createElement('button')
+        allowButton.type = 'button'
+        allowButton.classList.add('chat-tool-permission-allow')
+        allowButton.textContent = 'Allow'
+
+        const denyButton = document.createElement('button')
+        denyButton.type = 'button'
+        denyButton.classList.add('chat-tool-permission-deny')
+        denyButton.textContent = 'Deny'
+
+        const decide = async (allowed: boolean) => {
+            allowButton.disabled = true
+            denyButton.disabled = true
+
+            try {
+                await onDecision(request.requestId, allowed)
+                row.remove()
+                this.permissionRequestRows.delete(request.requestId)
+            } catch (error) {
+                console.error('Failed to submit permission decision:', error)
+                alert('Failed to submit permission decision. Please try again.')
+                allowButton.disabled = false
+                denyButton.disabled = false
+            }
+        }
+
+        allowButton.addEventListener('click', () => {
+            void decide(true)
+        })
+
+        denyButton.addEventListener('click', () => {
+            void decide(false)
+        })
+
+        controls.appendChild(allowButton)
+        controls.appendChild(denyButton)
+        row.appendChild(controls)
+
+        const lastToolCall = this.toolCallSections.at(-1)
+        if (lastToolCall?.parentElement) {
+            lastToolCall.parentElement.insertBefore(row, lastToolCall.nextSibling)
+        } else {
+            this.messageContent.appendChild(row)
+        }
+
+        this.permissionRequestRows.set(request.requestId, row)
     }
 
     private buildMarkdownBlock(content: string, ...classNames: string[]): [HTMLDivElement, (content: string) => void] {
@@ -516,6 +590,18 @@ export class ChatHistory {
         const existingMessage = this.messages[messageIndex]
         existingMessage.content = newContent
         existingMessage.build()
+        this.scrollToBottom()
+    }
+
+    async showToolPermissionRequest(messageId: Uuid, request: ToolPermissionRequest): Promise<void> {
+        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
+        if (messageIndex === -1) return
+
+        this.messages[messageIndex].showToolPermissionRequest(request, async (requestId, allowed) => {
+            await submitToolPermissionDecision(requestId, allowed)
+        })
+
+        this.scrollToBottom()
     }
 
     streamMessageContent(messageId: Uuid, fragment: StreamedMessageContent): void {
@@ -531,11 +617,14 @@ export class ChatHistory {
             const newContent = existingMessage.content[blockIndex].content + fragment.delta
             existingMessage.updateContentBlock(blockIndex, newContent)
         } else {
-            existingMessage.collapseDetails()
-            existingMessage.appendContentBlock({
-                type: fragment.type,
-                content: fragment.delta,
-            })
+            existingMessage.appendContentBlock(
+                {
+                    type: fragment.type,
+                    content: fragment.delta,
+                },
+                false,
+                true,
+            )
         }
     }
 

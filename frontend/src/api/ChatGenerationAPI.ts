@@ -1,7 +1,7 @@
-import type { ChatCompletionRequest, MessageContent, StreamedMessageContent } from 'vertex-common'
+import type { ChatCompletionRequest, MessageContent, StreamedLLMEvent } from 'vertex-common'
 
-export type StreamedMessageHandler = (message: StreamedMessageContent) => Promise<void>
-type FromLLM = StreamedMessageContent | MessageContent
+export type StreamedMessageHandler = (message: StreamedLLMEvent) => Promise<void>
+type FromLLM = StreamedLLMEvent | MessageContent
 
 export async function generateMessageContent(
     request: ChatCompletionRequest,
@@ -41,7 +41,7 @@ export async function generateMessageContent(
             if (line.trim() === '') continue
             const fragment = JSON.parse(line) as FromLLM
 
-            if ('delta' in fragment) {
+            if (!Array.isArray(fragment)) {
                 if (callback) await callback(fragment)
             } else {
                 generated = fragment
@@ -50,4 +50,19 @@ export async function generateMessageContent(
     }
 
     return generated
+}
+
+export async function submitToolPermissionDecision(requestId: string, allowed: boolean): Promise<void> {
+    const response = await fetch('/api/llm/tool-permission', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requestId, allowed }),
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to submit tool permission decision: ${errorResponse['error']}`)
+    }
 }

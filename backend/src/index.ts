@@ -3,7 +3,7 @@ import { createServer } from 'http'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { default as Database } from 'better-sqlite3'
-import type { ChatCompletionRequest, MessageContent, StreamedMessageContent, Uuid } from 'vertex-common'
+import type { ChatCompletionRequest, MessageContent, StreamedLLMEvent, Uuid } from 'vertex-common'
 
 import { ConversationStore } from './services/ConversationStore.js'
 import { PersonaStore } from './services/PersonaStore.js'
@@ -32,6 +32,41 @@ const llmService = await LLMService.initClient({
     baseUrl: process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com/v1',
     timeout: parseInt(process.env['OPENAI_TIMEOUT'] || '300000', 10),
     model: process.env['OPENAI_DEFAULT_MODEL'] ?? 'model',
+})
+
+const pendingToolPermissionRequests = new Map<
+    string,
+    {
+        resolve: (allowed: boolean) => void
+        reject: (error: Error) => void
+    }
+>()
+
+llmService.setToolPermissionHandler(async (request, signal) => {
+    return await new Promise<boolean>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException('Request aborted', 'AbortError'))
+            return
+        }
+
+        const onAbort = () => {
+            pendingToolPermissionRequests.delete(request.requestId)
+            reject(new DOMException('Request aborted', 'AbortError'))
+        }
+
+        signal?.addEventListener('abort', onAbort, { once: true })
+
+        pendingToolPermissionRequests.set(request.requestId, {
+            resolve: (allowed: boolean) => {
+                signal?.removeEventListener('abort', onAbort)
+                resolve(allowed)
+            },
+            reject: (error: Error) => {
+                signal?.removeEventListener('abort', onAbort)
+                reject(error)
+            },
+        })
+    })
 })
 
 llmService.registerTool(timeTool)
@@ -480,7 +515,7 @@ app.post('/api/llm/chat', async (req: Request, res: Response) => {
     res.setHeader('Transfer-Encoding', 'chunked')
 
     try {
-        const callback = (response: StreamedMessageContent) => {
+        const callback = (response: StreamedLLMEvent) => {
             if (generationAbortController.signal.aborted || res.writableEnded || res.destroyed) {
                 return
             }
@@ -516,6 +551,27 @@ app.post('/api/llm/chat', async (req: Request, res: Response) => {
         req.off('aborted', abortGeneration)
         res.off('close', abortGeneration)
     }
+})
+
+app.post('/api/llm/tool-permission', (req: Request, res: Response) => {
+    const requestId = req.body.requestId as string | undefined
+    const allowed = req.body.allowed as boolean | undefined
+
+    if (!requestId || allowed === undefined) {
+        res.status(400).json({ error: 'Missing requestId or allowed' })
+        return
+    }
+
+    const pending = pendingToolPermissionRequests.get(requestId)
+    if (!pending) {
+        res.status(404).json({ error: 'Permission request not found or already resolved' })
+        return
+    }
+
+    pendingToolPermissionRequests.delete(requestId)
+    pending.resolve(allowed)
+
+    res.json({ message: 'Permission decision accepted' })
 })
 
 // ===== Misc API endpoint =====

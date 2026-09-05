@@ -31,6 +31,15 @@ export interface StreamedMessageContent {
     delta: string
 }
 
+export interface ToolPermissionRequest {
+    type: 'tool_permission_request'
+    requestId: string
+    toolName: string
+    args: Record<string, unknown>
+}
+
+export type StreamedLLMEvent = StreamedMessageContent | ToolPermissionRequest
+
 export interface Conversation {
     id: Uuid
     name: string
