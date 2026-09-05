@@ -190,7 +190,6 @@ export class ChatMessage {
     public profilePictureUrl: string
     public personaName: string
     public element: HTMLDivElement | null = null
-    public expandSectionsByDefault = false
 
     constructor(
         id: Uuid,
@@ -273,7 +272,7 @@ export class ChatMessage {
         return this.element
     }
 
-    appendContentBlock(block: MessageContentBlock, buildOnly = false): void {
+    appendContentBlock(block: MessageContentBlock, buildOnly = false, expandDetails = false): void {
         if (!this.messageContent) {
             throw new Error('Message content container is not initialized')
         }
@@ -290,6 +289,7 @@ export class ChatMessage {
                     'Thinking',
                     block.content,
                     'thinking',
+                    expandDetails,
                 )
                 this.messageContent!.appendChild(thinkingBlockDiv)
                 this.contentBlockUpdaters.push(updateThinkingBlockDiv)
@@ -298,8 +298,9 @@ export class ChatMessage {
             case 'tool_call':
                 const [toolCallBlockDiv, updateToolCallBlockDiv] = this.buildCollapsibleSection(
                     'Tool Call',
-                    `/${block.content}`,
+                    `\`\`\`json\n${block.content}\n\`\`\``,
                     'tool_call',
+                    expandDetails,
                 )
                 this.messageContent!.appendChild(toolCallBlockDiv)
                 this.contentBlockUpdaters.push(updateToolCallBlockDiv)
@@ -310,6 +311,7 @@ export class ChatMessage {
                     'Tool Response',
                     block.content,
                     'tool_response',
+                    expandDetails,
                 )
                 this.messageContent!.appendChild(toolResponseBlockDiv)
                 this.contentBlockUpdaters.push(updateToolResponseBlockDiv)
@@ -333,6 +335,17 @@ export class ChatMessage {
         this.contentBlockUpdaters[index](newContent)
     }
 
+    collapseDetails(): void {
+        if (!this.messageContent) {
+            throw new Error('Message content container is not initialized')
+        }
+
+        const detailsElements = this.messageContent.querySelectorAll('details')
+        detailsElements.forEach((details) => {
+            details.open = false
+        })
+    }
+
     private buildMarkdownBlock(content: string, ...classNames: string[]): [HTMLDivElement, (content: string) => void] {
         const block = document.createElement('div')
         block.classList.add('chat-message-markdown', ...classNames)
@@ -349,10 +362,11 @@ export class ChatMessage {
         title: string,
         content: string,
         kind: MessageSectionKind,
+        expandByDefault: boolean = false,
     ): [HTMLDetailsElement, (content: string) => void] {
         const details = document.createElement('details')
         details.classList.add('chat-message-section', `chat-message-section-${kind}`)
-        if (this.expandSectionsByDefault) {
+        if (expandByDefault) {
             details.open = true
         }
 
@@ -485,10 +499,6 @@ export class ChatHistory {
             this.confirmAndDeleteMessage.bind(this),
         )
 
-        if (message.content.length === 0) {
-            chatMessage.expandSectionsByDefault = true
-        }
-
         this.messages.push(chatMessage)
         if (this.container) {
             this.container.appendChild(chatMessage.build())
@@ -521,6 +531,7 @@ export class ChatHistory {
             const newContent = existingMessage.content[blockIndex].content + fragment.delta
             existingMessage.updateContentBlock(blockIndex, newContent)
         } else {
+            existingMessage.collapseDetails()
             existingMessage.appendContentBlock({
                 type: fragment.type,
                 content: fragment.delta,

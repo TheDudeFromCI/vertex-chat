@@ -84,6 +84,11 @@ export class LLMService {
     ): Promise<MessageContent> {
         const response: MessageContent = []
 
+        interface ToolBuffer {
+            name: string
+            args: string
+        }
+
         const appendFragment = (fragment: string, type: MessageContentBlockType) => {
             if (response.at(-1)?.type === type) {
                 const block = response.at(-1)!
@@ -137,7 +142,7 @@ export class LLMService {
             const decoder = new TextDecoder()
             let buffer = ''
 
-            let toolArgsBuffer = ''
+            let toolBuffers: ToolBuffer[] = []
 
             while (true) {
                 if (signal?.aborted) {
@@ -170,23 +175,39 @@ export class LLMService {
                     const fragment = data['choices'][0]['delta']['content'] || ''
                     if (fragment) appendFragment(fragment, 'text')
 
-                    const tool = data['choices'][0]['delta']['tool_calls'] || null
-                    const toolName = tool ? tool['function']['name'] || null : null
-                    const toolArgs = tool ? tool['function']['arguments'] || null : null
-                    const stopReason = data['choices'][0]['finish_reason'] || null
+                    const tools = data['choices'][0]['delta']['tool_calls'] || []
+                    for (const tool of tools) {
+                        const index = tool['index']
+                        if (!toolBuffers[index]) {
+                            toolBuffers[index] = {
+                                name: '',
+                                args: '',
+                            }
+                        }
 
-                    if (toolArgs) toolArgsBuffer += toolArgs
+                        const toolName = tool['function']['name'] || null
+                        const toolArgs = tool['function']['arguments'] || ''
+                        if (toolName) toolBuffers[index]!.name = toolName
+                        toolBuffers[index]!.args += toolArgs
+                    }
+
+                    const stopReason = data['choices'][0]['finish_reason'] || null
 
                     if (stopReason === 'tool_calls') {
                         try {
-                            const argsJson = JSON.parse(toolArgsBuffer)
-                            appendFragment(JSON.stringify({ tool: toolName, args: argsJson }), 'tool_call')
+                            const toolIndex = 0
+
+                            const argsJson = JSON.parse(toolBuffers[toolIndex]!.args)
+                            appendFragment(
+                                JSON.stringify({ tool: toolBuffers[toolIndex]!.name, args: argsJson }, null, 2),
+                                'tool_call',
+                            )
 
                             try {
-                                const toolResult = await this.executeToolCall(toolName, argsJson)
+                                const toolResult = await this.executeToolCall(toolBuffers[toolIndex]!.name, argsJson)
                                 request.messages.push({
                                     role: 'tool',
-                                    tool_call_id: toolName,
+                                    tool_call_id: toolBuffers[toolIndex]!.name,
                                     content: toolResult,
                                 })
                                 appendFragment(toolResult, 'tool_response')
@@ -201,8 +222,6 @@ export class LLMService {
                             }
                         } catch (error) {
                             console.error('Failed to parse tool arguments JSON:', error)
-                        } finally {
-                            toolArgsBuffer = ''
                         }
                     }
                 }

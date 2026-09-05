@@ -9,6 +9,8 @@ import { ConversationStore } from './services/ConversationStore.js'
 import { PersonaStore } from './services/PersonaStore.js'
 import { LLMService } from './services/LLMService.js'
 
+import timeTool from './tools/Time.js'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = join(__dirname, '..', '..', '..')
 const FRONTEND_DIST = join(ROOT_DIR, 'frontend', 'dist')
@@ -31,6 +33,8 @@ const llmService = await LLMService.initClient({
     timeout: parseInt(process.env['OPENAI_TIMEOUT'] || '300000', 10),
     model: process.env['OPENAI_DEFAULT_MODEL'] ?? 'model',
 })
+
+llmService.registerTool(timeTool)
 
 // Middleware
 app.use(express.json({ limit: '10mb' }))
