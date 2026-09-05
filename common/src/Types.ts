@@ -26,6 +26,11 @@ export interface MessageContentBlock {
     content: string
 }
 
+export interface StreamedMessageContent {
+    type: MessageContentBlockType
+    delta: string
+}
+
 export interface Conversation {
     id: Uuid
     name: string

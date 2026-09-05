@@ -3,7 +3,7 @@ import { createServer } from 'http'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { default as Database } from 'better-sqlite3'
-import type { ChatCompletionRequest, MessageContent, Uuid } from 'vertex-common'
+import type { ChatCompletionRequest, MessageContent, StreamedMessageContent, Uuid } from 'vertex-common'
 
 import { ConversationStore } from './services/ConversationStore.js'
 import { PersonaStore } from './services/PersonaStore.js'
@@ -476,7 +476,7 @@ app.post('/api/llm/chat', async (req: Request, res: Response) => {
     res.setHeader('Transfer-Encoding', 'chunked')
 
     try {
-        const callback = (response: MessageContent) => {
+        const callback = (response: StreamedMessageContent) => {
             if (generationAbortController.signal.aborted || res.writableEnded || res.destroyed) {
                 return
             }
@@ -484,8 +484,9 @@ app.post('/api/llm/chat', async (req: Request, res: Response) => {
             res.write(JSON.stringify(response) + '\n')
         }
 
-        await llmService.chatCompletion(body, callback, generationAbortController.signal)
+        const full = await llmService.chatCompletion(body, callback, generationAbortController.signal)
         if (!res.writableEnded && !res.destroyed) {
+            res.write(JSON.stringify(full) + '\n')
             res.end()
         }
     } catch (error) {

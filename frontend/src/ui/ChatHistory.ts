@@ -1,5 +1,13 @@
 import '../css/chatHistory.css'
-import type { Conversation, Message, MessageContent, Persona, Uuid } from 'vertex-common'
+import type {
+    Conversation,
+    Message,
+    MessageContent,
+    MessageContentBlock,
+    Persona,
+    StreamedMessageContent,
+    Uuid,
+} from 'vertex-common'
 
 import type { App } from '../App.js'
 import { fetchConversation } from '../api/ConversationsAPI'
@@ -172,6 +180,10 @@ export class InputBox {
 }
 
 export class ChatMessage {
+    private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
+    private contentBlockUpdaters: ((newContent: string) => void)[] = []
+    private messageContent: HTMLDivElement | null = null
+
     public readonly id: Uuid
     public content: MessageContent
     public leftAligned: boolean = true
@@ -179,7 +191,6 @@ export class ChatMessage {
     public personaName: string
     public element: HTMLDivElement | null = null
     public expandSectionsByDefault = false
-    private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
 
     constructor(
         id: Uuid,
@@ -204,6 +215,7 @@ export class ChatMessage {
         } else {
             this.element.replaceChildren()
         }
+        this.contentBlockUpdaters = []
 
         const avatar = document.createElement('img')
         avatar.classList.add('chat-avatar')
@@ -222,30 +234,10 @@ export class ChatMessage {
         const messageContent = document.createElement('div')
         messageContent.classList.add('chat-message-content')
         bubble.appendChild(messageContent)
+        this.messageContent = messageContent
 
         for (const block of this.content) {
-            switch (block.type) {
-                case 'text':
-                    messageContent.appendChild(this.buildMarkdownBlock(block.content, 'chat-message-text'))
-                    break
-
-                case 'thinking':
-                    messageContent.appendChild(this.buildCollapsibleSection('Thinking', block.content, 'thinking'))
-                    break
-                case 'tool_call':
-                    messageContent.appendChild(
-                        this.buildCollapsibleSection('Tool Call', `/${block.content}`, 'tool_call'),
-                    )
-                    break
-                case 'tool_response':
-                    messageContent.appendChild(
-                        this.buildCollapsibleSection('Tool Response', block.content, 'tool_response'),
-                    )
-                    break
-
-                default:
-                    throw new Error(`Failed to parse block: ${JSON.stringify(block)}`)
-            }
+            this.appendContentBlock(block, true)
         }
 
         const actions = document.createElement('div')
@@ -281,14 +273,83 @@ export class ChatMessage {
         return this.element
     }
 
-    private buildMarkdownBlock(content: string, ...classNames: string[]): HTMLDivElement {
+    appendContentBlock(block: MessageContentBlock, buildOnly = false): void {
+        if (!this.messageContent) {
+            throw new Error('Message content container is not initialized')
+        }
+
+        switch (block.type) {
+            case 'text':
+                const [blockDiv, updateBlockDiv] = this.buildMarkdownBlock(block.content, 'chat-message-text')
+                this.messageContent!.appendChild(blockDiv)
+                this.contentBlockUpdaters.push(updateBlockDiv)
+                break
+
+            case 'thinking':
+                const [thinkingBlockDiv, updateThinkingBlockDiv] = this.buildCollapsibleSection(
+                    'Thinking',
+                    block.content,
+                    'thinking',
+                )
+                this.messageContent!.appendChild(thinkingBlockDiv)
+                this.contentBlockUpdaters.push(updateThinkingBlockDiv)
+                break
+
+            case 'tool_call':
+                const [toolCallBlockDiv, updateToolCallBlockDiv] = this.buildCollapsibleSection(
+                    'Tool Call',
+                    `/${block.content}`,
+                    'tool_call',
+                )
+                this.messageContent!.appendChild(toolCallBlockDiv)
+                this.contentBlockUpdaters.push(updateToolCallBlockDiv)
+                break
+
+            case 'tool_response':
+                const [toolResponseBlockDiv, updateToolResponseBlockDiv] = this.buildCollapsibleSection(
+                    'Tool Response',
+                    block.content,
+                    'tool_response',
+                )
+                this.messageContent!.appendChild(toolResponseBlockDiv)
+                this.contentBlockUpdaters.push(updateToolResponseBlockDiv)
+                break
+
+            default:
+                throw new Error(`Failed to parse block: ${JSON.stringify(block)}`)
+        }
+
+        if (!buildOnly) {
+            this.content.push(block)
+        }
+    }
+
+    updateContentBlock(index: number, newContent: string): void {
+        if (index < 0 || index >= this.content.length) {
+            throw new Error(`Invalid content block index: ${index}`)
+        }
+
+        this.content[index].content = newContent
+        this.contentBlockUpdaters[index](newContent)
+    }
+
+    private buildMarkdownBlock(content: string, ...classNames: string[]): [HTMLDivElement, (content: string) => void] {
         const block = document.createElement('div')
         block.classList.add('chat-message-markdown', ...classNames)
         block.innerHTML = md.render(content)
-        return block
+        return [
+            block,
+            (newContent: string) => {
+                block.innerHTML = md.render(newContent)
+            },
+        ]
     }
 
-    private buildCollapsibleSection(title: string, content: string, kind: MessageSectionKind): HTMLDetailsElement {
+    private buildCollapsibleSection(
+        title: string,
+        content: string,
+        kind: MessageSectionKind,
+    ): [HTMLDetailsElement, (content: string) => void] {
         const details = document.createElement('details')
         details.classList.add('chat-message-section', `chat-message-section-${kind}`)
         if (this.expandSectionsByDefault) {
@@ -300,10 +361,10 @@ export class ChatMessage {
         summary.textContent = title
         details.appendChild(summary)
 
-        const body = this.buildMarkdownBlock(content, 'chat-message-section-body')
+        const [body, updateBody] = this.buildMarkdownBlock(content, 'chat-message-section-body')
         details.appendChild(body)
 
-        return details
+        return [details, updateBody]
     }
 }
 
@@ -438,7 +499,7 @@ export class ChatHistory {
         }
     }
 
-    async updateMessage(messageId: Uuid, newContent: MessageContent): Promise<void> {
+    updateMessage(messageId: Uuid, newContent: MessageContent): void {
         const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
         if (messageIndex === -1) return // Ignore messages we can't see
 
@@ -447,7 +508,27 @@ export class ChatHistory {
         existingMessage.build()
     }
 
-    async removeMessage(messageId: Uuid): Promise<void> {
+    streamMessageContent(messageId: Uuid, fragment: StreamedMessageContent): void {
+        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
+        if (messageIndex === -1) return // Ignore messages we can't see
+
+        const existingMessage = this.messages[messageIndex]
+        const blockIndex = existingMessage.content.length - 1
+
+        console.log(`Streaming content for message ${messageId}:`, fragment)
+
+        if (existingMessage.content[blockIndex]?.type === fragment.type) {
+            const newContent = existingMessage.content[blockIndex].content + fragment.delta
+            existingMessage.updateContentBlock(blockIndex, newContent)
+        } else {
+            existingMessage.appendContentBlock({
+                type: fragment.type,
+                content: fragment.delta,
+            })
+        }
+    }
+
+    removeMessage(messageId: Uuid): void {
         const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
         if (messageIndex === -1) return
 
@@ -482,7 +563,7 @@ export class ChatHistory {
         return remainingScroll <= thresholdPx
     }
 
-    private scrollToBottom(): void {
+    scrollToBottom(): void {
         if (!this.container) {
             return
         }

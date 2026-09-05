@@ -1,4 +1,9 @@
-import type { ChatCompletionRequest, MessageContent, MessageContentBlockType } from 'vertex-common'
+import type {
+    ChatCompletionRequest,
+    MessageContent,
+    MessageContentBlockType,
+    StreamedMessageContent,
+} from 'vertex-common'
 
 export interface LLMServiceOptions {
     apiKey: string
@@ -29,7 +34,7 @@ interface PreparedRequest {
     temperature?: number
 }
 
-export type ChatStreamCallback = (response: MessageContent) => void
+export type ChatStreamCallback = (response: StreamedMessageContent) => void
 
 const isAbortError = (error: unknown): boolean => {
     return error instanceof DOMException && error.name === 'AbortError'
@@ -78,26 +83,23 @@ export class LLMService {
         signal?: AbortSignal,
     ): Promise<MessageContent> {
         const response: MessageContent = []
-        let lastPush = 0
-
-        const push = (force = false) => {
-            if (callback && (force || Date.now() - lastPush >= 1000)) {
-                callback(response)
-                lastPush = Date.now()
-            }
-        }
 
         const appendFragment = (fragment: string, type: MessageContentBlockType) => {
             if (response.at(-1)?.type === type) {
                 const block = response.at(-1)!
                 block.content += fragment
-                push()
             } else {
                 response.push({
                     type: type,
                     content: fragment,
                 })
-                push(true)
+            }
+
+            if (callback) {
+                callback({
+                    type: type,
+                    delta: fragment,
+                })
             }
         }
 
@@ -208,8 +210,6 @@ export class LLMService {
 
             break
         }
-
-        push(true)
 
         console.log('LLMService chat completion finished. Total response length:', response.length)
         console.log('Response:', JSON.stringify(response, null, 2))

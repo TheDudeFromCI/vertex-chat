@@ -1,6 +1,7 @@
-import type { ChatCompletionRequest, MessageContent } from 'vertex-common'
+import type { ChatCompletionRequest, MessageContent, StreamedMessageContent } from 'vertex-common'
 
-export type StreamedMessageHandler = (message: MessageContent) => Promise<void>
+export type StreamedMessageHandler = (message: StreamedMessageContent) => Promise<void>
+type FromLLM = StreamedMessageContent | MessageContent
 
 export async function generateMessageContent(
     request: ChatCompletionRequest,
@@ -26,25 +27,26 @@ export async function generateMessageContent(
     let buffer = ''
 
     let generated: MessageContent = []
-    let updated = false
 
     while (true) {
         const { value, done } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        updated = false
 
         const lines = buffer.split('\n')
         buffer = lines.pop()!
 
         for (const line of lines) {
             if (line.trim() === '') continue
-            generated = JSON.parse(line) as MessageContent
-            updated = true
-        }
+            const fragment = JSON.parse(line) as FromLLM
 
-        if (callback && updated) await callback(generated)
+            if ('delta' in fragment) {
+                if (callback) await callback(fragment)
+            } else {
+                generated = fragment
+            }
+        }
     }
 
     return generated
