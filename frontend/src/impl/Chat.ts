@@ -9,6 +9,37 @@ export class ChatManager {
         this.app = app
     }
 
+    private tryParseToolContent(
+        content: string,
+    ): { type: 'image' | 'file_attachment'; content: string; name?: string } | null {
+        try {
+            const parsed = JSON.parse(content)
+            if (!parsed || typeof parsed !== 'object') {
+                return null
+            }
+
+            if (parsed.type === 'image' && typeof parsed.content === 'string') {
+                return {
+                    type: 'image',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+
+            if (parsed.type === 'file_attachment' && typeof parsed.content === 'string') {
+                return {
+                    type: 'file_attachment',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+        } catch {
+            // Tool responses that are plain text remain plain text.
+        }
+
+        return null
+    }
+
     async generateChatCompletionRequest(conversationId: Uuid, agentId: Uuid): Promise<ChatCompletionRequest> {
         const conversation = await fetchConversation(conversationId)
         const agent = await this.app.getPersona(agentId)
@@ -65,6 +96,31 @@ export class ChatManager {
                                 url: block.content,
                             },
                         })
+                    }
+
+                    if (block.type === 'tool_response') {
+                        const parsed = this.tryParseToolContent(block.content)
+                        if (parsed?.type === 'image') {
+                            contentParts.push({
+                                type: 'image_url',
+                                image_url: {
+                                    url: parsed.content,
+                                },
+                            })
+                        }
+                        if (parsed?.type === 'file_attachment') {
+                            contentParts.push({
+                                type: 'text',
+                                text: `${name} attached file: ${parsed.name ?? 'attachment'}`,
+                            })
+                            contentParts.push({
+                                type: 'file',
+                                file: {
+                                    filename: parsed.name ?? 'attachment',
+                                    file_data: parsed.content,
+                                },
+                            })
+                        }
                     }
 
                     if (block.type === 'file_attachment') {

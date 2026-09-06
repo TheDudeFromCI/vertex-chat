@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile, rename } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, normalize } from 'node:path'
+import { basename, dirname, extname, isAbsolute, relative, resolve, normalize } from 'node:path'
+import { Jimp } from 'jimp'
 
 import type { Tool } from '../services/LLMService.js'
 
@@ -100,7 +101,8 @@ export function buildFileTools(allowedDirectories: string[]) {
 
     const readFileTool: Tool = {
         name: 'read_file',
-        description: 'Read the contents of a text file within an allowed directory.',
+        description:
+            'Read the contents of a file within an allowed directory. Image files are returned as PNG data URLs.',
         params: [
             {
                 name: 'path',
@@ -112,8 +114,42 @@ export function buildFileTools(allowedDirectories: string[]) {
         needsPermission: false,
         execute: async ({ path }) => {
             const filePath = resolveRequestedPath(allowedDirectories, String(path ?? ''))
-            const content = await readFile(filePath, 'utf8')
-            return JSON.stringify({ path: filePath, content })
+            const extension = extname(filePath).toLowerCase()
+            const imageMimeTypes = new Map<string, string>([
+                ['.png', 'image/png'],
+                ['.jpg', 'image/jpeg'],
+                ['.jpeg', 'image/jpeg'],
+                ['.gif', 'image/gif'],
+                ['.webp', 'image/webp'],
+                ['.bmp', 'image/bmp'],
+            ])
+
+            const mimeType = imageMimeTypes.get(extension)
+            const fileBuffer = await readFile(filePath)
+            if (mimeType) {
+                try {
+                    const image = await Jimp.read(fileBuffer)
+                    const pngBuffer = await image.getBuffer('image/png')
+                    return JSON.stringify({
+                        type: 'image',
+                        path: filePath,
+                        name: basename(filePath),
+                        content: `data:image/png;base64,${pngBuffer.toString('base64')}`,
+                    })
+                } catch {
+                    return JSON.stringify({
+                        type: 'image',
+                        path: filePath,
+                        name: basename(filePath),
+                        content: `data:image/png;base64,${fileBuffer.toString('base64')}`,
+                    })
+                }
+            }
+
+            return JSON.stringify({
+                path: filePath,
+                content: fileBuffer.toString('utf8'),
+            })
         },
     }
 

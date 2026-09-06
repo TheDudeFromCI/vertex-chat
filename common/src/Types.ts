@@ -118,5 +118,5 @@ export interface ChatCompletionMessageAssistant {
 export interface ChatCompletionToolCall {
     role: 'tool'
     tool_call_id: string
-    content: string
+    content: ChatCompletionMessageContent
 }

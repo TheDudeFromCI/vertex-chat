@@ -240,12 +240,64 @@ export class LLMService {
                                 }
 
                                 const toolResult = await this.executeToolCall(toolName, argsJson)
-                                request.messages.push({
-                                    role: 'tool',
-                                    tool_call_id: toolName,
-                                    content: toolResult,
-                                })
-                                appendFragment(toolResult, 'tool_response')
+
+                                const parsedToolResult = this.parseStructuredToolResult(toolResult)
+                                if (parsedToolResult) {
+                                    const toolMessageContent: any[] = []
+                                    if (parsedToolResult.type === 'image') {
+                                        toolMessageContent.push({
+                                            type: 'image_url',
+                                            image_url: {
+                                                url: parsedToolResult.content,
+                                            },
+                                        })
+                                        toolMessageContent.push({
+                                            type: 'text',
+                                            text: `Tool read image: ${parsedToolResult.name ?? 'image'}`,
+                                        })
+                                    } else if (parsedToolResult.type === 'file_attachment') {
+                                        toolMessageContent.push({
+                                            type: 'text',
+                                            text: `Tool read file: ${parsedToolResult.name ?? 'file'}`,
+                                        })
+                                        toolMessageContent.push({
+                                            type: 'file',
+                                            file: {
+                                                filename: parsedToolResult.name ?? 'file',
+                                                file_data: parsedToolResult.content,
+                                            },
+                                        })
+                                    } else {
+                                        toolMessageContent.push({
+                                            type: 'text',
+                                            text: toolResult,
+                                        })
+                                    }
+
+                                    request.messages.push({
+                                        role: 'tool',
+                                        tool_call_id: toolName,
+                                        content: toolMessageContent,
+                                    })
+                                    appendFragment(
+                                        `Tool result: ${parsedToolResult.name ?? 'response'}`,
+                                        'tool_response',
+                                    )
+                                    if (parsedToolResult.type === 'image') {
+                                        response.push({
+                                            type: 'image',
+                                            content: parsedToolResult.content,
+                                            name: parsedToolResult.name ?? 'image',
+                                        })
+                                    }
+                                } else {
+                                    request.messages.push({
+                                        role: 'tool',
+                                        tool_call_id: toolName,
+                                        content: toolResult,
+                                    })
+                                    appendFragment(toolResult, 'tool_response')
+                                }
                             } catch (error) {
                                 console.error('Failed to execute tool call:', error)
                                 const errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -467,6 +519,37 @@ export class LLMService {
             stream: true,
             temperature: this.temperature ?? undefined,
         }
+    }
+
+    private parseStructuredToolResult(
+        toolResult: string,
+    ): { type: 'image' | 'file_attachment'; content: string; name?: string } | null {
+        try {
+            const parsed = JSON.parse(toolResult)
+            if (!parsed || typeof parsed !== 'object') {
+                return null
+            }
+
+            if (parsed.type === 'image' && typeof parsed.content === 'string') {
+                return {
+                    type: 'image',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+
+            if (parsed.type === 'file_attachment' && typeof parsed.content === 'string') {
+                return {
+                    type: 'file_attachment',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+        } catch {
+            // Non-JSON tool outputs remain plain text.
+        }
+
+        return null
     }
 
     private async executeToolCall(toolName: string, args: Record<string, unknown>): Promise<string> {

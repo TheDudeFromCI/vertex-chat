@@ -664,10 +664,68 @@ export class ChatMessage {
         summary.textContent = title
         details.appendChild(summary)
 
+        const parsed = this.tryParseStructuredToolResponse(content)
+        if (parsed?.type === 'image') {
+            const body = document.createElement('div')
+            body.classList.add('chat-message-section-body')
+            body.appendChild(this.buildImageBlock(parsed.content, parsed.name ?? 'Tool output image'))
+            details.appendChild(body)
+            return [
+                details,
+                (newContent: string) => {
+                    const nextParsed = this.tryParseStructuredToolResponse(newContent)
+                    body.replaceChildren()
+                    if (nextParsed?.type === 'image') {
+                        body.appendChild(
+                            this.buildImageBlock(nextParsed.content, nextParsed.name ?? 'Tool output image'),
+                        )
+                        return
+                    }
+                    const [replacement, updateReplacement] = this.buildMarkdownBlock(
+                        newContent,
+                        'chat-message-section-body',
+                    )
+                    details.replaceChild(replacement, body)
+                    updateReplacement(newContent)
+                },
+            ]
+        }
+
         const [body, updateBody] = this.buildMarkdownBlock(content, 'chat-message-section-body')
         details.appendChild(body)
 
         return [details, updateBody]
+    }
+
+    private tryParseStructuredToolResponse(
+        content: string,
+    ): { type: 'image' | 'file_attachment'; content: string; name?: string } | null {
+        try {
+            const parsed = JSON.parse(content)
+            if (!parsed || typeof parsed !== 'object') {
+                return null
+            }
+
+            if (parsed.type === 'image' && typeof parsed.content === 'string') {
+                return {
+                    type: 'image',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+
+            if (parsed.type === 'file_attachment' && typeof parsed.content === 'string') {
+                return {
+                    type: 'file_attachment',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
+            }
+        } catch {
+            // Non-structured tool output stays as plain text markdown.
+        }
+
+        return null
     }
 }
 

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -19,6 +19,22 @@ test('resolveWithinAllowedDirectories should reject paths outside the allowed ro
     const outsideFile = join(tmpdir(), 'vertex-outside.txt')
 
     assert.throws(() => resolveWithinAllowedDirectories([allowedDir], outsideFile), /outside allowed directory/i)
+})
+
+test('read_file should return an image data URL for image files', async () => {
+    const allowedDir = mkdtempSync(join(tmpdir(), 'vertex-image-files-'))
+    const tools = buildFileTools([allowedDir])
+    const filePath = join(allowedDir, 'sample.png')
+    const samplePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAF', 'base64')
+
+    writeFileSync(filePath, samplePng)
+
+    const readResult = JSON.parse(await tools.readFile.execute({ path: 'sample.png' }))
+    assert.strictEqual(readResult.type, 'image')
+    assert.strictEqual(readResult.name, 'sample.png')
+    assert.match(readResult.content, /^data:image\/png;base64,/)
+
+    rmSync(allowedDir, { recursive: true, force: true })
 })
 
 test('file tools should list, create, read, update, and delete files within the allowed directory', async () => {
