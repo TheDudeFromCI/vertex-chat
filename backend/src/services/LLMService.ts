@@ -6,6 +6,7 @@ import type {
     ToolPermissionRequest,
 } from 'vertex-common'
 import { randomUUID } from 'crypto'
+import { FetchLLMConnection, type LLMConnection, type LLMPreparedRequest } from './LLMConnection.js'
 
 export interface LLMServiceOptions {
     apiKey: string
@@ -29,14 +30,6 @@ export interface ToolParam {
     required: boolean
 }
 
-interface PreparedRequest {
-    model: string
-    messages: any
-    tools: any
-    stream: true
-    temperature?: number
-}
-
 export type ChatStreamCallback = (response: StreamedLLMEvent) => void
 export type ToolPermissionHandler = (request: ToolPermissionRequest, signal?: AbortSignal) => Promise<boolean>
 
@@ -46,8 +39,7 @@ const isAbortError = (error: unknown): boolean => {
 
 export class LLMService {
     private readonly model: string
-    private readonly baseUrl: string
-    private readonly apiKey: string
+    private readonly connection: LLMConnection
     private readonly tools: Tool[] = []
     private permissionHandler: ToolPermissionHandler | null = null
     public temperature: number | null = null
@@ -55,9 +47,9 @@ export class LLMService {
     public maxOutputTokens: number
 
     static async initClient(options: LLMServiceOptions): Promise<LLMService> {
-        const llm = new LLMService(options.baseUrl, options.apiKey, options.model)
+        const connection = new FetchLLMConnection(options)
+        const llm = new LLMService(connection, { model: options.model })
 
-        // Validate the connection by listing available models
         const modelNames = await llm.fetchModels()
         const modelExists = modelNames.includes(options.model)
 
@@ -70,10 +62,9 @@ export class LLMService {
         return llm
     }
 
-    private constructor(baseUrl: string, apiKey: string, model: string) {
-        this.baseUrl = baseUrl
-        this.apiKey = apiKey
-        this.model = model
+    constructor(connection: LLMConnection, options: { model: string }) {
+        this.connection = connection
+        this.model = options.model
         this.maxTokens = Number.MAX_SAFE_INTEGER
         this.maxOutputTokens = Number.MAX_SAFE_INTEGER * 0.2
     }
@@ -128,18 +119,7 @@ export class LLMService {
             }
 
             const preparedRequest = await this.prepareRequest(optimizedRequest)
-            const stream = await this.fetchWithAbort(
-                `${this.baseUrl}/chat/completions`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${this.apiKey}`,
-                    },
-                    body: JSON.stringify(preparedRequest),
-                },
-                signal,
-            )
+            const stream = await this.connection.createChatCompletion(preparedRequest, signal)
 
             if (!stream.ok) {
                 const errorResponse = await stream.json()
@@ -203,116 +183,123 @@ export class LLMService {
                     const stopReason = data['choices'][0]['finish_reason'] || null
 
                     if (stopReason === 'tool_calls') {
-                        try {
-                            const toolIndex = 0
+                        const completedCalls = toolBuffers.filter(Boolean)
+                        if (completedCalls.length === 0) {
+                            continue
+                        }
 
-                            const argsJson = JSON.parse(toolBuffers[toolIndex]!.args)
-                            const toolName = toolBuffers[toolIndex]!.name
-                            appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
-
+                        for (const toolBuffer of completedCalls) {
                             try {
-                                const tool = this.tools.find((t) => t.name === toolName)
-                                if (!tool) {
-                                    throw new Error(`Tool "${toolName}" not found.`)
-                                }
+                                const argsJson = JSON.parse(toolBuffer.args)
+                                const toolName = toolBuffer.name
+                                const toolCallId = `${toolName}_${randomUUID()}`
+                                appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
 
-                                if (tool.needsPermission) {
-                                    const permissionRequest: ToolPermissionRequest = {
-                                        type: 'tool_permission_request',
-                                        requestId: randomUUID(),
-                                        toolName,
-                                        args: argsJson,
+                                try {
+                                    const tool = this.tools.find((t) => t.name === toolName)
+                                    if (!tool) {
+                                        throw new Error(`Tool "${toolName}" not found.`)
                                     }
 
-                                    callback?.(permissionRequest)
+                                    if (tool.needsPermission) {
+                                        const permissionRequest: ToolPermissionRequest = {
+                                            type: 'tool_permission_request',
+                                            requestId: randomUUID(),
+                                            toolName,
+                                            args: argsJson,
+                                        }
 
-                                    const allowed = await this.requestPermission(permissionRequest, signal)
-                                    if (!allowed) {
-                                        const deniedMessage = `Permission denied by user for tool "${toolName}".`
+                                        callback?.(permissionRequest)
+
+                                        const allowed = await this.requestPermission(permissionRequest, signal)
+                                        if (!allowed) {
+                                            const deniedMessage = `Permission denied by user for tool "${toolName}".`
+                                            request.messages.push({
+                                                role: 'tool',
+                                                tool_call_id: toolCallId,
+                                                content: deniedMessage,
+                                            })
+                                            appendFragment(deniedMessage, 'tool_response')
+                                            continue
+                                        }
+                                    }
+
+                                    const toolResult = await this.executeToolCall(toolName, argsJson)
+
+                                    const parsedToolResult = this.parseStructuredToolResult(toolResult)
+                                    if (parsedToolResult) {
+                                        const toolMessageContent: any[] = []
+                                        if (parsedToolResult.type === 'image') {
+                                            toolMessageContent.push({
+                                                type: 'image_url',
+                                                image_url: {
+                                                    url: parsedToolResult.content,
+                                                },
+                                            })
+                                            toolMessageContent.push({
+                                                type: 'text',
+                                                text: `Tool read image: ${parsedToolResult.name ?? 'image'}`,
+                                            })
+                                        } else if (parsedToolResult.type === 'file_attachment') {
+                                            toolMessageContent.push({
+                                                type: 'text',
+                                                text: `Tool read file: ${parsedToolResult.name ?? 'file'}`,
+                                            })
+                                            toolMessageContent.push({
+                                                type: 'file',
+                                                file: {
+                                                    filename: parsedToolResult.name ?? 'file',
+                                                    file_data: parsedToolResult.content,
+                                                },
+                                            })
+                                        } else {
+                                            toolMessageContent.push({
+                                                type: 'text',
+                                                text: toolResult,
+                                            })
+                                        }
+
                                         request.messages.push({
                                             role: 'tool',
-                                            tool_call_id: toolName,
-                                            content: deniedMessage,
+                                            tool_call_id: toolCallId,
+                                            content: toolMessageContent,
                                         })
-                                        appendFragment(deniedMessage, 'tool_response')
-                                        continue outerLoop
-                                    }
-                                }
-
-                                const toolResult = await this.executeToolCall(toolName, argsJson)
-
-                                const parsedToolResult = this.parseStructuredToolResult(toolResult)
-                                if (parsedToolResult) {
-                                    const toolMessageContent: any[] = []
-                                    if (parsedToolResult.type === 'image') {
-                                        toolMessageContent.push({
-                                            type: 'image_url',
-                                            image_url: {
-                                                url: parsedToolResult.content,
-                                            },
-                                        })
-                                        toolMessageContent.push({
-                                            type: 'text',
-                                            text: `Tool read image: ${parsedToolResult.name ?? 'image'}`,
-                                        })
-                                    } else if (parsedToolResult.type === 'file_attachment') {
-                                        toolMessageContent.push({
-                                            type: 'text',
-                                            text: `Tool read file: ${parsedToolResult.name ?? 'file'}`,
-                                        })
-                                        toolMessageContent.push({
-                                            type: 'file',
-                                            file: {
-                                                filename: parsedToolResult.name ?? 'file',
-                                                file_data: parsedToolResult.content,
-                                            },
-                                        })
+                                        appendFragment(
+                                            `Tool result: ${parsedToolResult.name ?? 'response'}`,
+                                            'tool_response',
+                                        )
+                                        if (parsedToolResult.type === 'image') {
+                                            response.push({
+                                                type: 'image',
+                                                content: parsedToolResult.content,
+                                                name: parsedToolResult.name ?? 'image',
+                                            })
+                                        }
                                     } else {
-                                        toolMessageContent.push({
-                                            type: 'text',
-                                            text: toolResult,
+                                        request.messages.push({
+                                            role: 'tool',
+                                            tool_call_id: toolCallId,
+                                            content: toolResult,
                                         })
+                                        appendFragment(toolResult, 'tool_response')
                                     }
-
+                                } catch (error) {
+                                    console.error('Failed to execute tool call:', error)
+                                    const errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
                                     request.messages.push({
                                         role: 'tool',
-                                        tool_call_id: toolName,
-                                        content: toolMessageContent,
+                                        tool_call_id: toolCallId,
+                                        content: errorMessage,
                                     })
-                                    appendFragment(
-                                        `Tool result: ${parsedToolResult.name ?? 'response'}`,
-                                        'tool_response',
-                                    )
-                                    if (parsedToolResult.type === 'image') {
-                                        response.push({
-                                            type: 'image',
-                                            content: parsedToolResult.content,
-                                            name: parsedToolResult.name ?? 'image',
-                                        })
-                                    }
-                                } else {
-                                    request.messages.push({
-                                        role: 'tool',
-                                        tool_call_id: toolName,
-                                        content: toolResult,
-                                    })
-                                    appendFragment(toolResult, 'tool_response')
+                                    appendFragment(errorMessage, 'tool_response')
                                 }
                             } catch (error) {
-                                console.error('Failed to execute tool call:', error)
-                                const errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-                                request.messages.push({
-                                    role: 'tool',
-                                    tool_call_id: toolName,
-                                    content: errorMessage,
-                                })
-                                appendFragment(errorMessage, 'tool_response')
-                            } finally {
-                                continue outerLoop
+                                console.error('Failed to parse tool arguments JSON:', error)
                             }
-                        } catch (error) {
-                            console.error('Failed to parse tool arguments JSON:', error)
                         }
+
+                        toolBuffers = []
+                        continue outerLoop
                     }
                 }
             }
@@ -324,21 +311,6 @@ export class LLMService {
         console.log('Response:', JSON.stringify(response, null, 2))
 
         return response
-    }
-
-    private async fetchWithAbort(input: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
-        try {
-            return await fetch(input, {
-                ...init,
-                signal,
-            })
-        } catch (error) {
-            if (isAbortError(error)) {
-                throw error
-            }
-
-            throw error
-        }
     }
 
     private async optimizeTokenCount(
@@ -402,21 +374,7 @@ export class LLMService {
     }
 
     private async fetchModels(): Promise<string[]> {
-        const response = await fetch(`${this.baseUrl}/models`, {
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${this.apiKey}`,
-            },
-        })
-
-        if (!response.ok) {
-            const errorResponse = await response.json()
-            console.error('Failed to fetch models:', errorResponse['error'])
-            throw new Error('Failed to fetch models')
-        }
-
-        const data = await response.json()
-        return data.data.map((model: { id: string }) => model.id)
+        return await this.connection.listModels()
     }
 
     private async countTokens(request: ChatCompletionRequest, signal?: AbortSignal): Promise<number> {
@@ -425,30 +383,10 @@ export class LLMService {
         }
 
         const preparedRequest = await this.prepareRequest(request)
-        const response = await this.fetchWithAbort(
-            `${this.baseUrl}/chat/completions/input_tokens`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${this.apiKey}`,
-                },
-                body: JSON.stringify(preparedRequest),
-            },
-            signal,
-        )
-
-        if (!response.ok) {
-            const errorResponse = await response.json()
-            console.error('Failed to count tokens:', errorResponse['error'])
-            throw new Error('Failed to count tokens')
-        }
-
-        const data = await response.json()
-        return data.input_tokens
+        return await this.connection.countInputTokens(preparedRequest, signal)
     }
 
-    private async prepareRequest(request: ChatCompletionRequest): Promise<PreparedRequest> {
+    async prepareRequest(request: ChatCompletionRequest): Promise<LLMPreparedRequest> {
         const messages = []
 
         if (request.prompt) {
@@ -459,6 +397,29 @@ export class LLMService {
         }
 
         for (const message of request.messages) {
+            if (message.role === 'assistant') {
+                const assistantMessage: any = {
+                    role: message.role,
+                    content: message.content,
+                }
+
+                if (message.thinking) {
+                    assistantMessage.thinking = message.thinking
+                }
+
+                messages.push(assistantMessage)
+                continue
+            }
+
+            if (message.role === 'tool') {
+                messages.push({
+                    role: message.role,
+                    tool_call_id: message.tool_call_id,
+                    content: message.content,
+                })
+                continue
+            }
+
             if (Array.isArray(message.content)) {
                 messages.push({
                     role: message.role,
