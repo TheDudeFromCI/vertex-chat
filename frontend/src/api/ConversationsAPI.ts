@@ -85,6 +85,24 @@ export async function updateConversationParticipants(conversationId: Uuid, parti
     }
 }
 
+export async function updateConversationMetadata(
+    conversationId: Uuid,
+    metadata: Record<string, unknown>,
+): Promise<void> {
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ metadata }),
+    })
+
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to update conversation metadata: ${errorResponse['error']}`)
+    }
+}
+
 export async function deleteConversation(conversationId: Uuid): Promise<void> {
     const response = await fetch(`/api/conversations/${conversationId}`, {
         method: 'DELETE',

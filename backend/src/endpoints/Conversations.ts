@@ -130,6 +130,7 @@ export default function register(app: Express, conversationStore: ConversationSt
         const conversationId = req.params['conversationId'] as Uuid
         const newName = req.body.name as string | undefined
         const participants = req.body.participants as Uuid[] | undefined
+        const metadata = req.body.metadata as Record<string, unknown> | undefined
         console.log(
             'Received request to update conversation with ID:',
             conversationId,
@@ -137,14 +138,16 @@ export default function register(app: Express, conversationStore: ConversationSt
             newName,
             'participants:',
             participants,
+            'metadata:',
+            metadata,
         )
 
-        if (newName === undefined && participants === undefined) {
+        if (newName === undefined && participants === undefined && metadata === undefined) {
             console.warn(
-                'Missing name and participants in request body for updating conversation with ID:',
+                'Missing name, participants, and metadata in request body for updating conversation with ID:',
                 conversationId,
             )
-            res.status(400).json({ error: 'Missing name and/or participants' })
+            res.status(400).json({ error: 'Missing name, participants, and/or metadata' })
             return
         }
 
@@ -169,6 +172,15 @@ export default function register(app: Express, conversationStore: ConversationSt
             if (!updatedParticipants) {
                 console.error('Failed to update participants for conversation with ID:', conversationId)
                 res.status(500).json({ error: 'Failed to update conversation participants' })
+                return
+            }
+        }
+
+        if (metadata !== undefined) {
+            const updatedMetadata = conversationStore.updateConversationMetadata(conversation.id, metadata)
+            if (!updatedMetadata) {
+                console.error('Failed to update metadata for conversation with ID:', conversationId)
+                res.status(500).json({ error: 'Failed to update conversation metadata' })
                 return
             }
         }

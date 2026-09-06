@@ -2,8 +2,14 @@ import '../css/participants.css'
 
 import type { Uuid } from 'vertex-common'
 import { fetchConversation } from '../api/ConversationsAPI.js'
-import type { App } from '../App.js'
+import type { AgentResponseMode, App } from '../App.js'
 import { PersonaEditorWindow } from './PersonaEditorWindow.js'
+
+const RESPONSE_MODES: ReadonlyArray<{ value: AgentResponseMode; label: string }> = [
+    { value: 'manual', label: 'Manual' },
+    { value: 'automatic', label: 'Automatic' },
+    { value: 'collaborative', label: 'Collaborative' },
+]
 
 interface ParticipantDisplay {
     id: Uuid
@@ -17,6 +23,7 @@ export class Participants {
     private readonly personaEditorWindow: PersonaEditorWindow
     private participantsContainer: HTMLDivElement | null = null
     private statusText: HTMLDivElement | null = null
+    private responseModeSelect: HTMLSelectElement | null = null
     private participantIds: Uuid[] = []
 
     constructor(app: App) {
@@ -66,6 +73,48 @@ export class Participants {
         participantsContainer.classList.add('participants-list')
         div.appendChild(participantsContainer)
         this.participantsContainer = participantsContainer
+
+        const footer = document.createElement('div')
+        footer.classList.add('participants-footer')
+
+        const responseModeLabel = document.createElement('label')
+        responseModeLabel.classList.add('participants-response-mode-label')
+        responseModeLabel.setAttribute('for', 'participants-response-mode')
+        responseModeLabel.textContent = 'Agent Response Mode'
+        footer.appendChild(responseModeLabel)
+
+        const responseModeSelect = document.createElement('select')
+        responseModeSelect.id = 'participants-response-mode'
+        responseModeSelect.classList.add('participants-response-mode-select')
+
+        for (const mode of RESPONSE_MODES) {
+            const option = document.createElement('option')
+            option.value = mode.value
+            option.textContent = mode.label
+            responseModeSelect.appendChild(option)
+        }
+
+        responseModeSelect.value = this.app.agentResponseMode
+        responseModeSelect.addEventListener('change', async () => {
+            const mode = responseModeSelect.value as AgentResponseMode
+            responseModeSelect.disabled = true
+
+            try {
+                await this.app.setAgentResponseMode(mode)
+                this.setStatus(`Agent response mode set to ${this.getResponseModeLabel(mode)}.`)
+            } catch (error) {
+                console.error('Failed to update response mode:', error)
+                this.setStatus('Failed to update response mode.')
+                responseModeSelect.value = this.app.agentResponseMode
+            } finally {
+                responseModeSelect.disabled = this.app.conversationId === null
+            }
+        })
+
+        this.responseModeSelect = responseModeSelect
+        footer.appendChild(responseModeSelect)
+        div.appendChild(footer)
+
         void this.reload()
         return div
     }
@@ -75,6 +124,7 @@ export class Participants {
         if (!conversationId) {
             this.participantIds = []
             this.renderParticipants([])
+            this.syncResponseModeSelect()
             this.setStatus('Open a conversation to manage participants.')
             return
         }
@@ -84,6 +134,7 @@ export class Participants {
             this.participantIds = [...conversation.participants]
             const display = await this.buildParticipantDisplay(conversation.participants)
             this.renderParticipants(display)
+            this.syncResponseModeSelect()
             this.setStatus(`${conversation.participants.length} participant(s) in this conversation.`)
         } catch (error) {
             console.error('Failed to reload participants:', error)
@@ -171,5 +222,24 @@ export class Participants {
 
         const separator = avatarUrl.includes('?') ? '&' : '?'
         return `${avatarUrl}${separator}v=${updatedAt}`
+    }
+
+    private syncResponseModeSelect(): void {
+        if (!this.responseModeSelect) {
+            return
+        }
+
+        this.responseModeSelect.value = this.app.agentResponseMode
+        this.responseModeSelect.disabled = this.app.conversationId === null
+    }
+
+    private getResponseModeLabel(mode: AgentResponseMode): string {
+        for (const option of RESPONSE_MODES) {
+            if (option.value === mode) {
+                return option.label
+            }
+        }
+
+        return 'Manual'
     }
 }
