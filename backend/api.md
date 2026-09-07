@@ -1,6 +1,6 @@
 # Vertex Backend API
 
-This document describes the HTTP API currently implemented in [backend/src/index.ts](backend/src/index.ts).
+This document describes the HTTP endpoints implemented by the Vertex backend in `backend/src`.
 
 ## Base URL
 
@@ -8,31 +8,57 @@ Default local base URL:
 
 - `http://127.0.0.1:8000`
 
-Environment variables:
+Configuration:
 
 - `HOST` (default: `127.0.0.1`)
 - `PORT` (default: `8000`)
-- `DIRECTORIES` (optional; semicolon-separated list of directories the backend may access for file tools, e.g. `/workspace;/tmp/projects`)
+- `DATABASE_PATH` (default: project-root `database.db`)
+- `DIRECTORIES` (optional; semicolon-separated directories allowed for file tools, e.g. `/workspace;/tmp/projects`)
 
-All API routes are under the `/api` prefix.
+All routes below are mounted under the `/api` prefix unless otherwise noted.
 
 ## Common behavior
 
-- API responses are JSON unless noted otherwise.
-- CORS headers are set on every response:
+- JSON responses are used for API endpoints unless the route explicitly returns binary content.
+- CORS is enabled for all responses:
   - `Access-Control-Allow-Origin: *`
   - `Access-Control-Allow-Credentials: true`
   - `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
   - `Access-Control-Allow-Headers: Content-Type, Authorization`
-- `OPTIONS` requests return `200`.
+- `OPTIONS` requests are answered with `200`.
+- Errors are returned as JSON objects in the form:
 
-## Types
+```json
+{
+  "error": "Human readable message"
+}
+```
 
-- `Uuid`: string UUID used for persona, workspace, conversation, and message IDs.
+## Shared types
+
+- `Uuid`: string UUID for persona, workspace, conversation, and message IDs.
+- `ChatCompletionRequest`:
+
+```json
+{
+  "prompt": "optional high-level prompt",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ]
+}
+```
+
+- `MessageContent`: array of content blocks with types such as `text`, `thinking`, `tool_call`, `tool_response`, `image`, and `file_attachment`.
+- `StreamedLLMEvent`: either a streamed content fragment or a tool permission request.
 
 ## Health
 
 ### GET `/api/health`
+
+Returns the backend health status.
 
 Response `200`:
 
@@ -42,7 +68,81 @@ Response `200`:
 }
 ```
 
-## Personas
+## LLM endpoints
+
+### POST `/api/llm/chat`
+
+Generates a message by streaming a chat completion from the configured OpenAI-compatible provider.
+
+Request body:
+
+```json
+{
+  "prompt": "Write a short noir scene",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Create a brief intro scene."
+    }
+  ]
+}
+```
+
+The endpoint returns newline-delimited JSON (NDJSON) to the client. The response stream contains:
+
+- regular streamed message fragment objects such as:
+
+```json
+{
+  "type": "text",
+  "delta": "A dark alley"
+}
+```
+
+- or tool permission requests such as:
+
+```json
+{
+  "type": "tool_permission_request",
+  "requestId": "uuid",
+  "toolName": "read_file",
+  "args": {
+    "path": "/tmp/example.txt"
+  }
+}
+```
+
+- and finally the completed `MessageContent` array as the last payload.
+
+If the request fails, the server returns `500` with an error JSON payload.
+
+### POST `/api/llm/tool-permission`
+
+Accepts the result of a tool permission prompt from the UI.
+
+Request body:
+
+```json
+{
+  "requestId": "uuid",
+  "allowed": true
+}
+```
+
+Response `200`:
+
+```json
+{
+  "message": "Permission decision accepted"
+}
+```
+
+Errors:
+
+- `400` if either field is missing
+- `404` if the permission request no longer exists or has already been resolved
+
+## Persona endpoints
 
 ### GET `/api/personas`
 
@@ -55,7 +155,7 @@ Response `200`:
   {
     "id": "uuid",
     "name": "Narrator",
-    "prompt": "You are Narrator, a helpful assistant.",
+    "prompt": "You are a cinematic narrator.",
     "created": 1735689600000,
     "updated": 1735689600000,
     "avatarUrl": "/api/personas/uuid/avatar"
@@ -63,13 +163,7 @@ Response `200`:
 ]
 ```
 
-`avatarUrl` is `null` when no avatar exists.
-
 ### GET `/api/personas/:personaId`
-
-Path params:
-
-- `personaId` (`Uuid`)
 
 Response `200`:
 
@@ -77,20 +171,16 @@ Response `200`:
 {
   "id": "uuid",
   "name": "Narrator",
-  "prompt": "You are Narrator, a helpful assistant.",
+  "prompt": "You are a cinematic narrator.",
   "created": 1735689600000,
   "updated": 1735689600000,
   "avatarUrl": "/api/personas/uuid/avatar"
 }
 ```
 
-Error `404`:
+Errors:
 
-```json
-{
-  "error": "Persona not found"
-}
-```
+- `404` => `{ "error": "Persona not found" }`
 
 ### POST `/api/personas/create`
 
@@ -99,54 +189,13 @@ Request body:
 ```json
 {
   "name": "Narrator",
-  "prompt": "You narrate cinematic detective stories."
+  "prompt": "You narrate noir scenes with a dry tone."
 }
 ```
 
-Fields:
+Required fields:
 
-- `name` (string, required)
-- `prompt` (string, optional; defaults to `You are <name>, a helpful assistant.`)
-
-Response `200`:
-
-```json
-{
-  "id": "uuid",
-  "name": "Narrator",
-  "prompt": "You narrate cinematic detective stories.",
-  "created": 1735689600000,
-  "updated": 1735689600000,
-  "avatarUrl": null
-}
-```
-
-Error `400`:
-
-```json
-{
-  "error": "Missing name"
-}
-```
-
-### PATCH `/api/personas/:personaId`
-
-Path params:
-
-- `personaId` (`Uuid`)
-
-Request body (at least one field required):
-
-```json
-{
-  "name": "Narrator v2",
-  "prompt": "You narrate concise noir scenes."
-}
-```
-
-Fields:
-
-- `name` (string, optional)
+- `name` (string)
 - `prompt` (string, optional)
 
 Response `200`:
@@ -154,8 +203,40 @@ Response `200`:
 ```json
 {
   "id": "uuid",
+  "name": "Narrator",
+  "prompt": "You narrate noir scenes with a dry tone.",
+  "created": 1735689600000,
+  "updated": 1735689600000,
+  "avatarUrl": null
+}
+```
+
+Errors:
+
+- `400` => `{ "error": "Missing name" }`
+
+### PATCH `/api/personas/:personaId`
+
+Updates a persona's name or prompt.
+
+Request body:
+
+```json
+{
   "name": "Narrator v2",
-  "prompt": "You narrate concise noir scenes.",
+  "prompt": "You narrate concise detective scenes."
+}
+```
+
+At least one of `name` or `prompt` must be present.
+
+Response `200`:
+
+```json
+{
+  "id": "uuid",
+  "name": "Narrator v2",
+  "prompt": "You narrate concise detective scenes.",
   "created": 1735689600000,
   "updated": 1735689700000,
   "avatarUrl": null
@@ -164,41 +245,20 @@ Response `200`:
 
 Errors:
 
-- `400`
-
-```json
-{
-  "error": "Missing name or prompt"
-}
-```
-
-- `404`
-
-```json
-{
-  "error": "Persona not found"
-}
-```
+- `400` => `{ "error": "Missing name or prompt" }`
+- `404` => `{ "error": "Persona not found" }`
 
 ### PUT `/api/personas/:personaId/avatar`
 
-Stores or replaces a persona avatar.
-
-Path params:
-
-- `personaId` (`Uuid`)
+Stores a new avatar image for a persona.
 
 Request body:
 
 ```json
 {
-  "fileDataBase64": "iVBORw0KGgoAAAANSUhEUgAA..."
+  "fileDataBase64": "data:image/png;base64,..."
 }
 ```
-
-Fields:
-
-- `fileDataBase64` (string, required; raw base64 or data URL payload)
 
 Response `200`:
 
@@ -210,43 +270,292 @@ Response `200`:
 
 Errors:
 
-- `400`
-
-```json
-{
-  "error": "Missing fileDataBase64"
-}
-```
-
-- `400`
-
-```json
-{
-  "error": "Invalid base64 image data"
-}
-```
-
-- `404`
-
-```json
-{
-  "error": "Persona not found"
-}
-```
+- `400` => `{ "error": "Missing fileDataBase64" }`
+- `400` => `{ "error": "Invalid base64 image data" }`
+- `404` => `{ "error": "Persona not found" }`
 
 ### GET `/api/personas/:personaId/avatar`
 
-Returns the stored avatar image bytes.
-
-Path params:
-
-- `personaId` (`Uuid`)
+Returns the stored avatar bytes as a binary image response.
 
 Response `200`:
 
-- Binary response body
-- `Content-Type: image/png`
+- binary image body
+- `Content-Type` matches the stored image mime type
 - `Cache-Control: public, max-age=86400`
+
+### DELETE `/api/personas/:personaId/avatar`
+
+Removes the persona avatar.
+
+Response `200`:
+
+```json
+{
+  "message": "Avatar deleted"
+}
+```
+
+### DELETE `/api/personas/:personaId`
+
+Deletes a persona.
+
+Response `200`:
+
+```json
+{
+  "message": "Persona deleted"
+}
+```
+
+Errors:
+
+- `404` => `{ "error": "Persona not found" }`
+
+## Workspace endpoints
+
+### GET `/api/workspaces`
+
+Lists all workspaces.
+
+### GET `/api/workspaces/:workspaceId`
+
+Returns a single workspace.
+
+### POST `/api/workspaces/create`
+
+Request body:
+
+```json
+{
+  "name": "Story Lab",
+  "metadata": {
+    "project": "demo"
+  }
+}
+```
+
+Required fields:
+
+- `name` (string)
+
+Response `200`: created workspace object.
+
+Errors:
+
+- `400` => `{ "error": "Missing name" }`
+
+### PATCH `/api/workspaces/:workspaceId`
+
+Renames a workspace.
+
+Request body:
+
+```json
+{
+  "name": "Story Lab v2"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "message": "Workspace updated"
+}
+```
+
+Errors:
+
+- `400` => `{ "error": "Missing name" }`
+- `404` => `{ "error": "Workspace not found" }`
+
+### DELETE `/api/workspaces/:workspaceId`
+
+Deletes a workspace.
+
+Response `200`:
+
+```json
+{
+  "message": "Workspace deleted"
+}
+```
+
+## Conversation endpoints
+
+### GET `/api/conversations/:conversationId`
+
+Returns one conversation object.
+
+### POST `/api/conversations/create`
+
+Creates a conversation inside a workspace.
+
+Request body:
+
+```json
+{
+  "name": "Morning briefing",
+  "workspaceId": "uuid"
+}
+```
+
+Required fields:
+
+- `name` (string)
+- `workspaceId` (UUID)
+
+Response `200`: created conversation object.
+
+Errors:
+
+- `400` => `{ "error": "Missing name or workspaceId" }`
+- `404` => `{ "error": "Workspace not found" }`
+
+### PATCH `/api/conversations/:conversationId`
+
+Updates conversation metadata, participants, or name.
+
+Request body examples:
+
+```json
+{
+  "name": "Night briefing"
+}
+```
+
+or
+
+```json
+{
+  "participants": ["uuid-a", "uuid-b"]
+}
+```
+
+or
+
+```json
+{
+  "metadata": {
+    "agentResponseMode": "automatic"
+  }
+}
+```
+
+Response `200`:
+
+```json
+{
+  "message": "Conversation updated"
+}
+```
+
+Errors:
+
+- `400` => `{ "error": "Missing name, participants, and/or metadata" }`
+- `404` => `{ "error": "Conversation not found" }`
+
+### DELETE `/api/conversations/:conversationId`
+
+Deletes a conversation.
+
+Response `200`:
+
+```json
+{
+  "message": "Conversation deleted"
+}
+```
+
+## Message endpoints
+
+### GET `/api/messages/:messageId`
+
+Returns one message.
+
+### POST `/api/messages/create`
+
+Creates a message in a conversation.
+
+Request body:
+
+```json
+{
+  "conversationId": "uuid",
+  "sender": "uuid",
+  "content": [
+    {
+      "type": "text",
+      "content": "Hello there"
+    }
+  ],
+  "metadata": {
+    "source": "user"
+  }
+}
+```
+
+Required fields:
+
+- `conversationId` (UUID)
+- `sender` (UUID)
+
+Response `200`: created message object.
+
+Errors:
+
+- `400` => `{ "error": "Missing conversationId" }`
+- `400` => `{ "error": "Missing sender" }`
+- `404` => `{ "error": "Conversation not found" }`
+
+### PUT `/api/messages/:messageId`
+
+Updates message content or metadata.
+
+Request body:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "content": "Updated content"
+    }
+  ]
+}
+```
+
+Response `200`:
+
+```json
+{
+  "message": "Message updated"
+}
+```
+
+Errors:
+
+- `400` => `{ "error": "Missing content and/or metadata" }`
+- `404` => `{ "error": "Message not found or failed to update" }`
+
+### DELETE `/api/messages/:messageId`
+
+Deletes a message.
+
+Response `200`:
+
+```json
+{
+  "message": "Message deleted"
+}
+```
+
+## Notes
+
+- The backend uses SQLite for persistence.
+- Tool permissions are enforced at the LLM layer; writes are not allowed outside the configured `DIRECTORIES` list.
+- The frontend communicates with the backend over the same origin (it uses `/api/...` fetch requests), while the backend also serves the built static frontend assets.
 
 Error `404`:
 

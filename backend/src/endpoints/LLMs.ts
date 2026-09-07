@@ -12,6 +12,9 @@ export default async function register(app: Express): Promise<void> {
         model: process.env['OPENAI_DEFAULT_MODEL'] ?? 'model',
     })
 
+    llmService.maxTokens = parseInt(process.env['OPENAI_MAX_TOKENS'] || '256000', 10)
+    llmService.maxOutputTokens = parseInt(process.env['OPENAI_MAX_OUTPUT_TOKENS'] || '128000', 10)
+
     const pendingToolPermissionRequests = new Map<
         string,
         {
