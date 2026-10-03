@@ -34,6 +34,7 @@ test('prepareRequest preserves reasoning and unique tool call IDs for modern str
         ],
         toolContext: {
             conversationId: null,
+            agentId: null,
         },
     }
 
@@ -81,6 +82,7 @@ test('countTokens delegates to the injected connection with the prepared request
         ],
         toolContext: {
             conversationId: null,
+            agentId: null,
         },
     }
 
@@ -122,6 +124,7 @@ test('optimizeTokenCount trims the oldest conversation when it exceeds the model
         ],
         toolContext: {
             conversationId: null,
+            agentId: null,
         },
     }
 
@@ -160,6 +163,7 @@ const request = (): ChatCompletionRequest => ({
     messages: [{ role: 'user', content: 'hi' }],
     toolContext: {
         conversationId: null,
+        agentId: null,
     },
 })
 

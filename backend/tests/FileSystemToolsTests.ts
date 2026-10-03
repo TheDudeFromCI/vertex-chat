@@ -30,6 +30,7 @@ test('read_file should return an image data URL for image files', async () => {
 
     const context: ToolExecutionContext = {
         conversationId: null,
+        agentId: null,
     }
 
     writeFileSync(filePath, samplePng)
@@ -48,6 +49,7 @@ test('file tools should list, create, read, update, and delete files within the 
 
     const context: ToolExecutionContext = {
         conversationId: null,
+        agentId: null,
     }
 
     const listResult = JSON.parse(await tools.listDirectory.execute({ path: '.' }, context))

@@ -158,6 +158,7 @@ export class ChatManager {
             messages,
             toolContext: {
                 conversationId,
+                agentId,
             },
         }
 

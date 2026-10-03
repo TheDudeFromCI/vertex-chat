@@ -21,6 +21,7 @@ export interface Message {
 
 export interface ToolExecutionContext {
     conversationId: Uuid | null
+    agentId: Uuid | null
 }
 
 export type MessageContent = MessageContentBlock[]
@@ -65,11 +66,7 @@ export interface RenameConversation {
     name: string
 }
 
-export type StreamedLLMEvent =
-    | StreamedMessageContent
-    | ToolPermissionRequest
-    | BeginLLMGeneration
-    | RenameConversation
+export type StreamedLLMEvent = StreamedMessageContent | ToolPermissionRequest | BeginLLMGeneration | RenameConversation
 
 export interface Conversation {
     id: Uuid
