@@ -3,8 +3,15 @@ import { LLMService } from '../services/LLMService.js'
 import timeTool from '../tools/Time.js'
 import { buildFileTools, parseAllowedDirectories } from '../tools/FileSystem.js'
 import type { ChatCompletionRequest, StreamedLLMEvent } from 'vertex-common'
+import { buildConversationTools } from '../tools/Conversation.js'
+import type { ConversationStore } from '../services/ConversationStore.js'
+import type { PersonaStore } from '../services/PersonaStore.js'
 
-export default async function register(app: Express): Promise<void> {
+export default async function register(
+    app: Express,
+    conversationStore: ConversationStore,
+    personaStore: PersonaStore,
+): Promise<void> {
     const llmService = await LLMService.initClient({
         apiKey: process.env['OPENAI_API_KEY'] ?? 'no-key',
         baseUrl: process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com/v1',
@@ -53,7 +60,6 @@ export default async function register(app: Express): Promise<void> {
     // Register Tools
     const allowedDirectories = parseAllowedDirectories(process.env['DIRECTORIES'])
     const fileTools = buildFileTools(allowedDirectories)
-
     llmService.registerTool(timeTool)
     llmService.registerTool(fileTools.baseDirectories)
     llmService.registerTool(fileTools.listDirectory)
@@ -63,6 +69,12 @@ export default async function register(app: Express): Promise<void> {
     llmService.registerTool(fileTools.deleteFile)
     llmService.registerTool(fileTools.createFolder)
     llmService.registerTool(fileTools.renameFile)
+
+    const conversationTools = buildConversationTools(conversationStore, personaStore)
+    llmService.registerTool(conversationTools.renameConversation)
+    llmService.registerTool(conversationTools.conversationName)
+    llmService.registerTool(conversationTools.participants)
+    llmService.registerTool(conversationTools.avatar)
 
     app.post('/api/llm/chat', async (req: Request, res: Response) => {
         const body = req.body as ChatCompletionRequest

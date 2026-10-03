@@ -156,6 +156,9 @@ export class ChatManager {
         const request: ChatCompletionRequest = {
             prompt: agent.prompt,
             messages,
+            toolContext: {
+                conversationId,
+            },
         }
 
         return request

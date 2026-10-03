@@ -27,7 +27,7 @@ const conversationStore = new ConversationStore(db)
 const personaStore = new PersonaStore(db)
 
 middleware(app)
-await registerLLMEndpoint(app)
+await registerLLMEndpoint(app, conversationStore, personaStore)
 registerPersonasEndpoint(app, personaStore)
 registerConversationsEndpoint(app, conversationStore)
 registerMessagesEndpoint(app, conversationStore)

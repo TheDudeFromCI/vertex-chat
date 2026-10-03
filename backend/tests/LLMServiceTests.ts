@@ -32,6 +32,9 @@ test('prepareRequest preserves reasoning and unique tool call IDs for modern str
                 thinking: 'Follow-up reasoning',
             },
         ],
+        toolContext: {
+            conversationId: null,
+        },
     }
 
     const prepared = await service.prepareRequest(request)
@@ -76,6 +79,9 @@ test('countTokens delegates to the injected connection with the prepared request
                 content: 'Hello there',
             },
         ],
+        toolContext: {
+            conversationId: null,
+        },
     }
 
     const tokenCount = await (service as any).countTokens(request)
@@ -114,6 +120,9 @@ test('optimizeTokenCount trims the oldest conversation when it exceeds the model
             { role: 'assistant', content: 'reply 2', thinking: 'reasoning 2' },
             { role: 'user', content: 'message 3' },
         ],
+        toolContext: {
+            conversationId: null,
+        },
     }
 
     const optimized = await (service as any).optimizeTokenCount(request)
@@ -145,7 +154,12 @@ const makeService = (createChatCompletion: LLMConnection['createChatCompletion']
     return new LLMService(connection, { model: 'test-model' })
 }
 
-const request = (): ChatCompletionRequest => ({ messages: [{ role: 'user', content: 'hi' }] })
+const request = (): ChatCompletionRequest => ({
+    messages: [{ role: 'user', content: 'hi' }],
+    toolContext: {
+        conversationId: null,
+    },
+})
 
 const quiet = (t: TestContext) => {
     t.mock.method(console, 'error', () => {})

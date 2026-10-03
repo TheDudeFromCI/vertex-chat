@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { buildFileTools, parseAllowedDirectories, resolveWithinAllowedDirectories } from '../src/tools/FileSystem.js'
+import type { ToolExecutionContext } from 'vertex-common'
 
 test('parseAllowedDirectories should split and trim semicolon-separated paths', () => {
     assert.deepStrictEqual(parseAllowedDirectories('/tmp/one;/tmp/two; ; /tmp/three'), [
@@ -27,9 +28,13 @@ test('read_file should return an image data URL for image files', async () => {
     const filePath = join(allowedDir, 'sample.png')
     const samplePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAF', 'base64')
 
+    const context: ToolExecutionContext = {
+        conversationId: null,
+    }
+
     writeFileSync(filePath, samplePng)
 
-    const readResult = JSON.parse(await tools.readFile.execute({ path: 'sample.png' }))
+    const readResult = JSON.parse(await tools.readFile.execute({ path: 'sample.png' }, context))
     assert.strictEqual(readResult.type, 'image')
     assert.strictEqual(readResult.name, 'sample.png')
     assert.match(readResult.content, /^data:image\/png;base64,/)
@@ -41,27 +46,31 @@ test('file tools should list, create, read, update, and delete files within the 
     const allowedDir = mkdtempSync(join(tmpdir(), 'vertex-files-'))
     const tools = buildFileTools([allowedDir])
 
-    const listResult = JSON.parse(await tools.listDirectory.execute({ path: '.' }))
+    const context: ToolExecutionContext = {
+        conversationId: null,
+    }
+
+    const listResult = JSON.parse(await tools.listDirectory.execute({ path: '.' }, context))
     assert.deepStrictEqual(listResult.entries, [])
 
-    await tools.createFile.execute({ path: 'notes.txt', content: 'hello world' })
+    await tools.createFile.execute({ path: 'notes.txt', content: 'hello world' }, context)
 
     const filePath = join(allowedDir, 'notes.txt')
     assert.strictEqual(readFileSync(filePath, 'utf8'), 'hello world')
 
-    const readResult = JSON.parse(await tools.readFile.execute({ path: 'notes.txt' }))
+    const readResult = JSON.parse(await tools.readFile.execute({ path: 'notes.txt' }, context))
     assert.deepStrictEqual(readResult, {
         path: filePath,
         content: 'hello world',
     })
 
-    await tools.updateFile.execute({ path: 'notes.txt', content: 'hello again' })
+    await tools.updateFile.execute({ path: 'notes.txt', content: 'hello again' }, context)
     assert.strictEqual(readFileSync(filePath, 'utf8'), 'hello again')
 
-    const listAfterWrite = JSON.parse(await tools.listDirectory.execute({ path: '.' }))
+    const listAfterWrite = JSON.parse(await tools.listDirectory.execute({ path: '.' }, context))
     assert.deepStrictEqual(listAfterWrite.entries, ['notes.txt'])
 
-    await tools.deleteFile.execute({ path: 'notes.txt' })
+    await tools.deleteFile.execute({ path: 'notes.txt' }, context)
     assert.strictEqual(existsSync(filePath), false)
 
     rmSync(allowedDir, { recursive: true, force: true })

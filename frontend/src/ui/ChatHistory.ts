@@ -958,8 +958,6 @@ export class ChatHistory {
         const existingMessage = found.message
         const blockIndex = existingMessage.content.length - 1
 
-        console.log(`Streaming content for message ${messageId}:`, fragment)
-
         if (!fragment.type.startsWith('tool_response') && existingMessage.content[blockIndex]?.type === fragment.type) {
             const newContent = existingMessage.content[blockIndex].content + fragment.delta
             existingMessage.updateContentBlock(blockIndex, newContent)

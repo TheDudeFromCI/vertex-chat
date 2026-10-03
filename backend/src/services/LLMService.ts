@@ -3,6 +3,7 @@ import type {
     MessageContent,
     MessageContentBlockType,
     StreamedLLMEvent,
+    ToolExecutionContext,
     ToolPermissionRequest,
 } from 'vertex-common'
 import { randomUUID } from 'crypto'
@@ -20,7 +21,7 @@ export interface Tool {
     description: string
     params: ToolParam[]
     needsPermission: boolean
-    execute: (args: Record<string, unknown>) => Promise<string>
+    execute: (args: Record<string, unknown>, context: ToolExecutionContext) => Promise<string>
 }
 
 export interface ToolParam {
@@ -241,7 +242,11 @@ export class LLMService {
                                         }
                                     }
 
-                                    const toolResult = await this.executeToolCall(toolName, argsJson)
+                                    const toolResult = await this.executeToolCall(
+                                        toolName,
+                                        argsJson,
+                                        request.toolContext,
+                                    )
 
                                     const parsedToolResult = this.parseStructuredToolResult(toolResult)
                                     if (parsedToolResult) {
@@ -414,6 +419,7 @@ export class LLMService {
                 {
                     messages: request.messages.slice(start),
                     prompt: request.prompt,
+                    toolContext: request.toolContext,
                 },
                 signal,
             )
@@ -443,6 +449,7 @@ export class LLMService {
             return {
                 prompt: request.prompt,
                 messages: request.messages.slice(request.messages.length - low),
+                toolContext: request.toolContext,
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -612,13 +619,17 @@ export class LLMService {
         return null
     }
 
-    private async executeToolCall(toolName: string, args: Record<string, unknown>): Promise<string> {
+    private async executeToolCall(
+        toolName: string,
+        args: Record<string, unknown>,
+        context: ToolExecutionContext,
+    ): Promise<string> {
         const tool = this.tools.find((t) => t.name === toolName)
         if (!tool) {
             throw new Error(`Tool "${toolName}" not found.`)
         }
 
-        return await tool.execute(args)
+        return await tool.execute(args, context)
     }
 
     private async requestPermission(request: ToolPermissionRequest, signal?: AbortSignal): Promise<boolean> {

@@ -19,6 +19,10 @@ export interface Message {
     metadata: Record<string, unknown>
 }
 
+export interface ToolExecutionContext {
+    conversationId: Uuid | null
+}
+
 export type MessageContent = MessageContentBlock[]
 export type MessageContentBlockType =
     | 'text'
@@ -82,6 +86,7 @@ export interface PersonaProfilePicture {
 export interface ChatCompletionRequest {
     prompt?: string
     messages: ChatCompletionMessage[]
+    toolContext: ToolExecutionContext
 }
 
 export interface ChatCompletionContentTextPart {
