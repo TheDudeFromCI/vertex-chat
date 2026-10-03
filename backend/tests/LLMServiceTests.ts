@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 
 import type { ChatCompletionRequest } from 'vertex-common'
@@ -123,4 +123,204 @@ test('optimizeTokenCount trims the oldest conversation when it exceeds the model
         optimized.messages.map((message: any) => message.content),
         ['reply 2', 'message 3'],
     )
+})
+
+const textChunk = (content: string) => ({ choices: [{ delta: { content } }] })
+const toolChunk = (name: string, args: string) => ({
+    choices: [
+        { delta: { tool_calls: [{ index: 0, function: { name, arguments: args } }] }, finish_reason: 'tool_calls' },
+    ],
+})
+
+const sseResponse = (lines: string[]) =>
+    new Response(lines.map((l) => `data: ${l}\n`).join('') + 'data: [DONE]\n', { status: 200 })
+const sseJson = (chunks: object[]) => sseResponse(chunks.map((c) => JSON.stringify(c)))
+
+const makeService = (createChatCompletion: LLMConnection['createChatCompletion']) => {
+    const connection: LLMConnection = {
+        listModels: async () => ['test-model'],
+        createChatCompletion,
+        countInputTokens: async () => 1,
+    }
+    return new LLMService(connection, { model: 'test-model' })
+}
+
+const request = (): ChatCompletionRequest => ({ messages: [{ role: 'user', content: 'hi' }] })
+
+const quiet = (t: TestContext) => {
+    t.mock.method(console, 'error', () => {})
+    t.mock.method(console, 'log', () => {})
+}
+
+test('chatCompletion skips malformed stream lines and keeps the rest', async (t) => {
+    quiet(t)
+    const service = makeService(async () =>
+        sseResponse([JSON.stringify(textChunk('Hello')), '{not json', JSON.stringify(textChunk(' world'))]),
+    )
+
+    const result = await service.chatCompletion(request())
+
+    assert.deepEqual(result, [{ type: 'text', content: 'Hello world' }])
+})
+
+test('chatCompletion retries a failed request and then succeeds', async (t) => {
+    quiet(t)
+    let calls = 0
+    const service = makeService(async () => {
+        calls++
+        if (calls === 1) return new Response(JSON.stringify({ error: 'No user query found' }), { status: 400 })
+        if (calls === 2) throw new Error('network down')
+        return sseJson([textChunk('recovered')])
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.equal(calls, 3)
+    assert.deepEqual(result, [{ type: 'text', content: 'recovered' }])
+})
+
+test('chatCompletion throws when the provider fails before any text is generated', async (t) => {
+    quiet(t)
+    let calls = 0
+    const service = makeService(async () => {
+        calls++
+        return new Response(JSON.stringify({ error: 'boom' }), { status: 500 })
+    })
+
+    await assert.rejects(service.chatCompletion(request()), /500/)
+    assert.equal(calls, 3)
+})
+
+test('chatCompletion returns partial text when the provider fails after a tool call', async (t) => {
+    quiet(t)
+    let calls = 0
+    const service = makeService(async () => {
+        calls++
+        if (calls === 1) return sseJson([textChunk('Let me check. '), toolChunk('echo', '{"a":1}')])
+        return new Response(JSON.stringify({ error: 'No user query found' }), { status: 400 })
+    })
+    service.registerTool({
+        name: 'echo',
+        description: 'echo',
+        params: [],
+        needsPermission: false,
+        execute: async () => 'tool output',
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.equal(calls, 4)
+    assert.equal(result[0]?.type, 'text')
+    assert.equal(result[0]?.content, 'Let me check. ')
+    assert.ok(result.some((b) => b.type === 'tool_response' && b.content === 'tool output'))
+})
+
+test('chatCompletion returns partial text when the stream errors mid-read', async (t) => {
+    quiet(t)
+    const service = makeService(async () => {
+        const encoder = new TextEncoder()
+        let pulls = 0
+        const body = new ReadableStream({
+            // Erroring in start() would discard the queued chunk, so fail on the second read.
+            pull(controller) {
+                if (pulls++ === 0) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(textChunk('partial'))}\n`))
+                } else {
+                    controller.error(new Error('connection reset'))
+                }
+            },
+        })
+        return new Response(body, { status: 200 })
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.deepEqual(result, [{ type: 'text', content: 'partial' }])
+})
+
+test('chatCompletion falls back to an unoptimized request when token counting fails', async (t) => {
+    quiet(t)
+    const connection: LLMConnection = {
+        listModels: async () => ['test-model'],
+        createChatCompletion: async () => sseJson([textChunk('ok')]),
+        countInputTokens: async () => {
+            throw new Error('count endpoint missing')
+        },
+    }
+    const service = new LLMService(connection, { model: 'test-model' })
+    service.maxTokens = 100
+    service.maxOutputTokens = 20
+
+    const result = await service.chatCompletion(request())
+
+    assert.deepEqual(result, [{ type: 'text', content: 'ok' }])
+})
+
+test('chatCompletion reports invalid tool JSON to the model and continues', async (t) => {
+    quiet(t)
+    let calls = 0
+    const req = request()
+    const service = makeService(async () => {
+        calls++
+        if (calls === 1) return sseJson([toolChunk('echo', '{"a": ')])
+        return sseJson([textChunk('fixed')])
+    })
+
+    const result = await service.chatCompletion(req)
+
+    assert.equal(calls, 2)
+    const toolMessage = req.messages.find((m) => m.role === 'tool') as any
+    assert.match(toolMessage.content, /invalid JSON/)
+    assert.ok(result.some((b) => b.type === 'text' && b.content === 'fixed'))
+})
+
+test('chatCompletion stops after repeated invalid tool JSON instead of looping forever', async (t) => {
+    quiet(t)
+    let calls = 0
+    const service = makeService(async () => {
+        calls++
+        return sseJson([textChunk('x'), toolChunk('echo', '{bad')])
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.equal(calls, 4)
+    assert.equal(result[0]?.type, 'text')
+})
+
+test('chatCompletion resets the invalid tool JSON budget after a successful tool call', async (t) => {
+    quiet(t)
+    let calls = 0
+    // Two failures, a success, then two more failures: 5 failures total but never 3 in a row.
+    const script = ['{bad', '{bad', '{}', '{bad', '{bad']
+    const service = makeService(async () => {
+        const args = script[calls++]
+        return args === undefined ? sseJson([textChunk('done')]) : sseJson([toolChunk('echo', args)])
+    })
+    service.registerTool({
+        name: 'echo',
+        description: 'echo',
+        params: [],
+        needsPermission: false,
+        execute: async () => 'ok',
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.equal(calls, 6)
+    assert.ok(result.some((b) => b.type === 'text' && b.content === 'done'))
+})
+
+test('chatCompletion rethrows aborts without retrying', async (t) => {
+    quiet(t)
+    let calls = 0
+    const controller = new AbortController()
+    const service = makeService(async () => {
+        calls++
+        controller.abort()
+        throw new DOMException('Request aborted', 'AbortError')
+    })
+
+    await assert.rejects(service.chatCompletion(request(), undefined, controller.signal), { name: 'AbortError' })
+    assert.equal(calls, 1)
 })

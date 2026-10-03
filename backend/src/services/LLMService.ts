@@ -33,6 +33,9 @@ export interface ToolParam {
 export type ChatStreamCallback = (response: StreamedLLMEvent) => void
 export type ToolPermissionHandler = (request: ToolPermissionRequest, signal?: AbortSignal) => Promise<boolean>
 
+const MAX_REQUEST_RETRIES = 2
+const MAX_TOOL_PARSE_FAILURES = 3
+
 const isAbortError = (error: unknown): boolean => {
     return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -108,23 +111,21 @@ export class LLMService {
             }
         }
 
+        let parseFailures = 0
+        let abandon = false
+
         outerLoop: while (true) {
             if (signal?.aborted) {
                 throw new DOMException('Request aborted', 'AbortError')
             }
 
-            const optimizedRequest = await this.optimizeTokenCount(request, signal)
-            if (!optimizedRequest) {
-                throw new Error('Failed to optimize token count for the request.')
-            }
-
-            const preparedRequest = await this.prepareRequest(optimizedRequest)
-            const stream = await this.connection.createChatCompletion(preparedRequest, signal)
-
-            if (!stream.ok) {
-                const errorResponse = await stream.json()
-                console.error('Failed to initiate chat completion:', errorResponse['error'])
-                throw new Error('Failed to initiate chat completion')
+            let stream: Response
+            try {
+                stream = await this.openStream(request, signal)
+            } catch (error) {
+                if (isAbortError(error) || response.length === 0) throw error
+                console.error('Unrecoverable provider error, returning partial response:', error)
+                break
             }
 
             const reader = stream.body!.getReader()
@@ -138,7 +139,15 @@ export class LLMService {
                     throw new DOMException('Request aborted', 'AbortError')
                 }
 
-                const { value, done } = await reader.read()
+                let value: Uint8Array | undefined
+                let done: boolean
+                try {
+                    ;({ value, done } = await reader.read())
+                } catch (error) {
+                    if (isAbortError(error) || signal?.aborted) throw error
+                    console.error('Stream read failed, keeping partial response:', error)
+                    break
+                }
                 if (done) break
 
                 buffer += decoder.decode(value, { stream: true })
@@ -152,7 +161,13 @@ export class LLMService {
                     if (line === '') continue
                     if (line === '[DONE]') break
 
-                    const data = JSON.parse(line)
+                    let data: any
+                    try {
+                        data = JSON.parse(line)
+                    } catch (error) {
+                        console.error('Skipping malformed stream chunk:', line, error)
+                        continue
+                    }
                     if (!data['choices'] || !data['choices'][0]) {
                         console.error('Invalid response format:', data)
                         continue
@@ -191,6 +206,7 @@ export class LLMService {
                         for (const toolBuffer of completedCalls) {
                             try {
                                 const argsJson = JSON.parse(toolBuffer.args)
+                                parseFailures = 0
                                 const toolName = toolBuffer.name
                                 const toolCallId = `${toolName}_${randomUUID()}`
                                 appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
@@ -295,10 +311,24 @@ export class LLMService {
                                 }
                             } catch (error) {
                                 console.error('Failed to parse tool arguments JSON:', error)
+                                parseFailures++
+                                if (parseFailures <= MAX_TOOL_PARSE_FAILURES) {
+                                    // Tell the model so it can retry with valid JSON.
+                                    const errorMessage = `Error: invalid JSON arguments for tool "${toolBuffer.name}". Please retry with valid JSON.`
+                                    request.messages.push({
+                                        role: 'tool',
+                                        tool_call_id: `${toolBuffer.name}_${randomUUID()}`,
+                                        content: errorMessage,
+                                    })
+                                    appendFragment(errorMessage, 'tool_response')
+                                } else {
+                                    abandon = true
+                                }
                             }
                         }
 
                         toolBuffers = []
+                        if (abandon) break outerLoop
                         continue outerLoop
                     }
                 }
@@ -311,6 +341,43 @@ export class LLMService {
         console.log('Response:', JSON.stringify(response, null, 2))
 
         return response
+    }
+
+    private async openStream(request: ChatCompletionRequest, signal?: AbortSignal): Promise<Response> {
+        let lastError: unknown
+
+        for (let attempt = 0; attempt <= MAX_REQUEST_RETRIES; attempt++) {
+            if (signal?.aborted) {
+                throw new DOMException('Request aborted', 'AbortError')
+            }
+
+            try {
+                let optimizedRequest = request
+                try {
+                    optimizedRequest = await this.optimizeTokenCount(request, signal)
+                } catch (error) {
+                    if (isAbortError(error)) throw error
+                    console.error('Token optimization failed, sending request unoptimized:', error)
+                }
+
+                const preparedRequest = await this.prepareRequest(optimizedRequest)
+                const stream = await this.connection.createChatCompletion(preparedRequest, signal)
+
+                if (stream.ok && stream.body) return stream
+
+                const errorResponse = await stream.json().catch(() => null)
+                lastError = new Error(
+                    `Provider returned ${stream.status}: ${JSON.stringify(errorResponse?.['error'] ?? errorResponse)}`,
+                )
+            } catch (error) {
+                if (isAbortError(error)) throw error
+                lastError = error
+            }
+
+            console.error(`Chat completion attempt ${attempt + 1} failed:`, lastError)
+        }
+
+        throw lastError instanceof Error ? lastError : new Error('Failed to initiate chat completion')
     }
 
     private async optimizeTokenCount(
