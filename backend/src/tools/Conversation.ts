@@ -15,7 +15,7 @@ export function buildConversationTools(conversationStore: ConversationStore, per
             },
         ],
         needsPermission: true,
-        execute: async ({ new_name }, { conversationId }, callbacks) => {
+        execute: async ({ new_name }, { conversationId }, callback) => {
             if (!conversationId) {
                 return 'You must have a valid conversation ID to rename the conversation. You are in an external environment.'
             }
@@ -23,7 +23,7 @@ export function buildConversationTools(conversationStore: ConversationStore, per
 
             if (!result) return 'Error: Failed to update conversation name. You are in an external environment.'
 
-            callbacks?.renameConversation?.(new_name as string)
+            callback?.({ type: 'rename_conversation', name: new_name as string })
             return 'Updated conversation name successfully.'
         },
     }

@@ -1,4 +1,14 @@
-import type { Message, MessageContent, Persona, StreamedLLMEvent, Uuid } from 'vertex-common'
+import type {
+    Message,
+    MessageContent,
+    NewConversation,
+    NewWorkspace,
+    Persona,
+    StreamedLLMEvent,
+    SubagentGenerationCompleted,
+    SubagentGenerationTriggered,
+    Uuid,
+} from 'vertex-common'
 import { ChatHistory } from './ui/ChatHistory.js'
 import { ContextPanel } from './ui/ContextPanel.js'
 import { Workspaces } from './ui/Workspaces.js'
@@ -18,6 +28,8 @@ import { AGENT_RESPONSE_MODE_KEY, LoadedConversation, type AgentResponseMode } f
 import { PersonaCache } from './impl/Personas.js'
 
 export type { AgentResponseMode }
+
+type SubagentEvent = NewWorkspace | NewConversation | SubagentGenerationTriggered | SubagentGenerationCompleted
 
 const CONTEXT_TOKENS_KEY = 'contextTokens'
 
@@ -89,24 +101,57 @@ export class App {
     }
 
     async loadConversation(conversationId: Uuid | null): Promise<void> {
-        if (conversationId && !this.loadedConversations.has(conversationId)) {
-            const conversation = await fetchConversation(conversationId)
-            this.loadedConversations.set(conversationId, new LoadedConversation(conversation))
-            const saved = conversation.metadata[CONTEXT_TOKENS_KEY] as Partial<ContextUsage> | undefined
-            if (saved && typeof saved === 'object' && typeof saved.used === 'number') {
-                this.contextTokens.set(conversationId, {
-                    used: saved.used,
-                    promptTokens: saved.promptTokens ?? 0,
-                    totalTokens: saved.totalTokens ?? saved.used,
-                })
-            }
-            await this.chatHistory.loadConversation(conversation)
-        }
+        if (conversationId) await this.ensureConversationLoaded(conversationId)
 
         this._conversationId = conversationId
 
         await this.chatHistory.showConversation()
         await this.contextPanel.reloadParticipants()
+    }
+
+    private async ensureConversationLoaded(conversationId: Uuid): Promise<void> {
+        if (this.loadedConversations.has(conversationId)) return
+
+        const conversation = await fetchConversation(conversationId)
+        this.loadedConversations.set(conversationId, new LoadedConversation(conversation))
+        const saved = conversation.metadata[CONTEXT_TOKENS_KEY] as Partial<ContextUsage> | undefined
+        if (saved && typeof saved === 'object' && typeof saved.used === 'number') {
+            this.contextTokens.set(conversationId, {
+                used: saved.used,
+                promptTokens: saved.promptTokens ?? 0,
+                totalTokens: saved.totalTokens ?? saved.used,
+            })
+        }
+        await this.chatHistory.loadConversation(conversation)
+    }
+
+    private isSubagentEvent(event: StreamedLLMEvent): event is SubagentEvent {
+        return (
+            event.type === 'new_workspace' ||
+            event.type === 'new_conversation' ||
+            event.type === 'subagent_generation_triggered' ||
+            event.type === 'subagent_generation_completed'
+        )
+    }
+
+    private async handleSubagentEvent(event: SubagentEvent): Promise<void> {
+        switch (event.type) {
+            case 'new_workspace':
+            case 'new_conversation':
+            case 'subagent_generation_triggered':
+                await this.workspaces.reloadWorkspaces()
+                return
+            case 'subagent_generation_completed':
+                // Drop any stale cached view so the reply shows up.
+                if (this.loadedConversations.has(event.conversationId)) {
+                    this.loadedConversations.delete(event.conversationId)
+                    this.chatHistory.unloadConversation(event.conversationId)
+                    await this.ensureConversationLoaded(event.conversationId)
+                    if (this._conversationId === event.conversationId) await this.chatHistory.showConversation()
+                }
+                await this.workspaces.reloadWorkspaces()
+                return
+        }
     }
 
     async deleteConversation(conversationId: Uuid): Promise<void> {
@@ -186,6 +231,10 @@ export class App {
                 await this.renameConversation(conversationId, event.name)
                 return
             }
+            if (this.isSubagentEvent(event)) {
+                await this.handleSubagentEvent(event)
+                return
+            }
             if (event.type === 'tool_permission_request') {
                 await this.chatHistory.showToolPermissionRequest(messagePlaceholder.id, event)
                 return
@@ -220,6 +269,10 @@ export class App {
             if (event.type === 'begin_llm_generation') return
             if (event.type === 'rename_conversation') {
                 await this.renameConversation(conversationId, event.name)
+                return
+            }
+            if (this.isSubagentEvent(event)) {
+                await this.handleSubagentEvent(event)
                 return
             }
             if (event.type === 'tool_permission_request') {
@@ -297,7 +350,14 @@ export class App {
                 promptTokens: event.promptTokens,
                 totalTokens: event.totalTokens,
             })
-        } else if (event.type !== 'tool_permission_request' && event.type !== 'rename_conversation') {
+        } else if (
+            event.type !== 'tool_permission_request' &&
+            event.type !== 'rename_conversation' &&
+            event.type !== 'new_workspace' &&
+            event.type !== 'new_conversation' &&
+            event.type !== 'subagent_generation_triggered' &&
+            event.type !== 'subagent_generation_completed'
+        ) {
             const current = this.contextTokens.get(conversationId) ?? { used: 0, promptTokens: 0, totalTokens: 0 }
             this.contextTokens.set(conversationId, { ...current, used: current.used + event.tokens })
         } else {

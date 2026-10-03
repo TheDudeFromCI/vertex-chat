@@ -52,7 +52,7 @@ All routes below are mounted under the `/api` prefix unless otherwise noted.
 ```
 
 - `MessageContent`: array of content blocks with types such as `text`, `thinking`, `tool_call`, `tool_response`, `image`, and `file_attachment`.
-- `StreamedLLMEvent`: either a streamed content fragment or a tool permission request.
+- `StreamedLLMEvent`: a streamed content fragment, tool permission request, `begin_llm_generation`, `rename_conversation`, or a subagent event (`new_workspace`, `new_conversation`, `subagent_generation_triggered`). The client runs the generation for the target agent when it receives `subagent_generation_triggered`.
 
 ## Health
 

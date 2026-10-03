@@ -66,7 +66,42 @@ export interface RenameConversation {
     name: string
 }
 
-export type StreamedLLMEvent = StreamedMessageContent | ToolPermissionRequest | BeginLLMGeneration | RenameConversation
+export interface NewWorkspace {
+    type: 'new_workspace'
+    workspaceId: Uuid
+    name: string
+}
+
+export interface NewConversation {
+    type: 'new_conversation'
+    workspaceId: Uuid
+    conversationId: Uuid
+    name: string
+}
+
+// The backend runs the generation itself; clients only use this to refresh their view.
+export interface SubagentGenerationTriggered {
+    type: 'subagent_generation_triggered'
+    conversationId: Uuid
+    callerId: Uuid
+    agentId: Uuid
+}
+
+export interface SubagentGenerationCompleted {
+    type: 'subagent_generation_completed'
+    conversationId: Uuid
+    agentId: Uuid
+}
+
+export type StreamedLLMEvent =
+    | StreamedMessageContent
+    | ToolPermissionRequest
+    | BeginLLMGeneration
+    | RenameConversation
+    | NewWorkspace
+    | NewConversation
+    | SubagentGenerationTriggered
+    | SubagentGenerationCompleted
 
 export interface Conversation {
     id: Uuid

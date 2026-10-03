@@ -4,6 +4,7 @@ import timeTool from '../tools/Time.js'
 import { buildFileTools, parseAllowedDirectories } from '../tools/FileSystem.js'
 import type { ChatCompletionRequest, StreamedLLMEvent } from 'vertex-common'
 import { buildConversationTools } from '../tools/Conversation.js'
+import { buildSubagentTool } from '../tools/Subagent.js'
 import type { ConversationStore } from '../services/ConversationStore.js'
 import type { PersonaStore } from '../services/PersonaStore.js'
 
@@ -75,6 +76,9 @@ export default async function register(
     llmService.registerTool(conversationTools.conversationName)
     llmService.registerTool(conversationTools.participants)
     llmService.registerTool(conversationTools.avatar)
+
+    const subagentTool = buildSubagentTool(llmService, conversationStore, personaStore)
+    llmService.registerTool(subagentTool)
 
     app.post('/api/llm/chat', async (req: Request, res: Response) => {
         const body = req.body as ChatCompletionRequest

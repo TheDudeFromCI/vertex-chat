@@ -86,8 +86,11 @@ export class ConversationStore {
         return workspaces
     }
 
-    createWorkspace(name: string, metadata: Record<string, unknown> = {}): Readonly<Workspace> {
-        const id = generateUuid()
+    createWorkspace(
+        name: string,
+        metadata: Record<string, unknown> = {},
+        id: Uuid = generateUuid(),
+    ): Readonly<Workspace> {
         this.database
             .prepare('INSERT INTO workspaces (id, name, metadata) VALUES (?, ?, ?)')
             .run(id, name, JSON.stringify(metadata))

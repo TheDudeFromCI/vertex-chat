@@ -21,16 +21,10 @@ export interface Tool {
     description: string
     params: ToolParam[]
     needsPermission: boolean
-    execute: (
-        args: Record<string, unknown>,
-        context: ToolExecutionContext,
-        callbacks?: ToolCallbacks,
-    ) => Promise<string>
+    execute: (args: Record<string, unknown>, context: ToolExecutionContext, callbacks?: ToolCallback) => Promise<string>
 }
 
-export interface ToolCallbacks {
-    renameConversation: (name: string) => void
-}
+export type ToolCallback = (event: StreamedLLMEvent) => void
 
 export interface ToolParam {
     name: string
@@ -256,15 +250,11 @@ export class LLMService {
                                         }
                                     }
 
-                                    const toolCallbacks: ToolCallbacks = {
-                                        renameConversation: (name) => callback?.({ type: 'rename_conversation', name }),
-                                    }
-
                                     const toolResult = await this.executeToolCall(
                                         toolName,
                                         argsJson,
                                         request.toolContext,
-                                        toolCallbacks,
+                                        (event: StreamedLLMEvent) => callback?.(event),
                                     )
 
                                     const parsedToolResult = this.parseStructuredToolResult(toolResult)
@@ -671,14 +661,14 @@ export class LLMService {
         toolName: string,
         args: Record<string, unknown>,
         context: ToolExecutionContext,
-        callbacks: ToolCallbacks,
+        callback?: ToolCallback,
     ): Promise<string> {
         const tool = this.tools.find((t) => t.name === toolName)
         if (!tool) {
             throw new Error(`Tool "${toolName}" not found.`)
         }
 
-        return await tool.execute(args, context, callbacks)
+        return await tool.execute(args, context, callback)
     }
 
     private async requestPermission(request: ToolPermissionRequest, signal?: AbortSignal): Promise<boolean> {
