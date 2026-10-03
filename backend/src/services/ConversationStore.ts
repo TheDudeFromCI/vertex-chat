@@ -29,6 +29,23 @@ interface MessageRow {
     metadata: string
 }
 
+// Stored messages may still use the pre-split 'tool_response' type.
+function parseMessageContent(raw: string): MessageContent {
+    const blocks = JSON.parse(raw) as { type: string; content: string }[]
+    for (const block of blocks) {
+        if (block.type !== 'tool_response') continue
+        let isJson = false
+        try {
+            const parsed = JSON.parse(block.content)
+            isJson = !!parsed && typeof parsed === 'object'
+        } catch {
+            // Plain text.
+        }
+        block.type = isJson ? 'tool_response_json' : 'tool_response_text'
+    }
+    return blocks as MessageContent
+}
+
 export class ConversationStore {
     private readonly database: Database
 
@@ -183,7 +200,7 @@ export class ConversationStore {
                 conversationId: msg.conversationId,
                 sender: msg.sender,
                 timestamp: msg.timestamp,
-                content: JSON.parse(msg.content) as MessageContent,
+                content: parseMessageContent(msg.content),
                 edited: msg.edited !== 0,
                 metadata: JSON.parse(msg.metadata),
             })),
@@ -299,7 +316,7 @@ export class ConversationStore {
             conversationId: messageRow.conversationId,
             sender: messageRow.sender,
             timestamp: messageRow.timestamp,
-            content: JSON.parse(messageRow.content) as MessageContent,
+            content: parseMessageContent(messageRow.content),
             edited: messageRow.edited !== 0,
             metadata: JSON.parse(messageRow.metadata),
         }

@@ -51,7 +51,7 @@ All routes below are mounted under the `/api` prefix unless otherwise noted.
 }
 ```
 
-- `MessageContent`: array of content blocks with types such as `text`, `thinking`, `tool_call`, `tool_response`, `image`, and `file_attachment`.
+- `MessageContent`: array of content blocks with types such as `text`, `thinking`, `tool_call`, `tool_response_json`, `tool_response_text`, `tool_response_md`, `image`, and `file_attachment`.
 - `StreamedLLMEvent`: either a streamed content fragment or a tool permission request.
 
 ## Health

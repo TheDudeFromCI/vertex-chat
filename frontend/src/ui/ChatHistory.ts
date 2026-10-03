@@ -25,7 +25,7 @@ const ATTACH_SYMBOL = new URL('../../icons/plus.png', import.meta.url).href
 const TEXT_FILE_SYMBOL = new URL('../../icons/text.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
-type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response'
+type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response_json' | 'tool_response_text' | 'tool_response_md'
 
 type ChatAttachment = {
     type: 'image' | 'file_attachment'
@@ -519,11 +519,13 @@ export class ChatMessage {
                 this.contentBlockUpdaters.push(updateToolCallBlockDiv)
                 break
 
-            case 'tool_response':
+            case 'tool_response_json':
+            case 'tool_response_text':
+            case 'tool_response_md':
                 const [toolResponseBlockDiv, updateToolResponseBlockDiv] = this.buildCollapsibleSection(
                     'Tool Response',
                     block.content,
-                    'tool_response',
+                    block.type,
                     expandDetails,
                 )
                 this.messageContent!.appendChild(toolResponseBlockDiv)
@@ -713,10 +715,33 @@ export class ChatMessage {
             ]
         }
 
-        const [body, updateBody] = this.buildMarkdownBlock(content, 'chat-message-section-body')
+        const [body, updateBody] = this.buildMarkdownBlock(
+            this.formatSectionContent(kind, content),
+            'chat-message-section-body',
+        )
         details.appendChild(body)
 
-        return [details, updateBody]
+        return [details, (newContent: string) => updateBody(this.formatSectionContent(kind, newContent))]
+    }
+
+    private formatSectionContent(kind: MessageSectionKind, content: string): string {
+        if (kind === 'tool_response_md') return content
+        if (kind !== 'tool_response_json' && kind !== 'tool_response_text') return content
+
+        let text = content
+        let lang = 'text'
+        if (kind === 'tool_response_json') {
+            lang = 'json'
+            try {
+                text = JSON.stringify(JSON.parse(content), null, 2)
+            } catch {
+                // Still streaming or malformed; show as-is.
+            }
+        }
+
+        const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
+        const fence = '`'.repeat(Math.max(3, longestRun + 1))
+        return `${fence}${lang}\n${text}\n${fence}`
     }
 
     private tryParseStructuredToolResponse(
@@ -935,7 +960,7 @@ export class ChatHistory {
 
         console.log(`Streaming content for message ${messageId}:`, fragment)
 
-        if (existingMessage.content[blockIndex]?.type === fragment.type) {
+        if (!fragment.type.startsWith('tool_response') && existingMessage.content[blockIndex]?.type === fragment.type) {
             const newContent = existingMessage.content[blockIndex].content + fragment.delta
             existingMessage.updateContentBlock(blockIndex, newContent)
         } else {

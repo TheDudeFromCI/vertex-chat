@@ -212,7 +212,7 @@ test('chatCompletion returns partial text when the provider fails after a tool c
     assert.equal(calls, 4)
     assert.equal(result[0]?.type, 'text')
     assert.equal(result[0]?.content, 'Let me check. ')
-    assert.ok(result.some((b) => b.type === 'tool_response' && b.content === 'tool output'))
+    assert.ok(result.some((b) => b.type === 'tool_response_text' && b.content === 'tool output'))
 })
 
 test('chatCompletion returns partial text when the stream errors mid-read', async (t) => {

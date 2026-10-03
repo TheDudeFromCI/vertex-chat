@@ -93,7 +93,8 @@ export class LLMService {
         }
 
         const appendFragment = (fragment: string, type: MessageContentBlockType) => {
-            if (response.at(-1)?.type === type) {
+            // Each tool response is a self-contained block (merging would corrupt JSON).
+            if (!type.startsWith('tool_response') && response.at(-1)?.type === type) {
                 const block = response.at(-1)!
                 block.content += fragment
             } else {
@@ -235,7 +236,7 @@ export class LLMService {
                                                 tool_call_id: toolCallId,
                                                 content: deniedMessage,
                                             })
-                                            appendFragment(deniedMessage, 'tool_response')
+                                            appendFragment(deniedMessage, 'tool_response_text')
                                             continue
                                         }
                                     }
@@ -271,7 +272,10 @@ export class LLMService {
                                         } else {
                                             toolMessageContent.push({
                                                 type: 'text',
-                                                text: toolResult,
+                                                text:
+                                                    parsedToolResult.type === 'markdown'
+                                                        ? parsedToolResult.content
+                                                        : toolResult,
                                             })
                                         }
 
@@ -280,10 +284,14 @@ export class LLMService {
                                             tool_call_id: toolCallId,
                                             content: toolMessageContent,
                                         })
-                                        appendFragment(
-                                            `Tool result: ${parsedToolResult.name ?? 'response'}`,
-                                            'tool_response',
-                                        )
+                                        if (parsedToolResult.type === 'markdown') {
+                                            appendFragment(parsedToolResult.content, 'tool_response_md')
+                                        } else {
+                                            appendFragment(
+                                                `Tool result: ${parsedToolResult.name ?? 'response'}`,
+                                                'tool_response_text',
+                                            )
+                                        }
                                         if (parsedToolResult.type === 'image') {
                                             response.push({
                                                 type: 'image',
@@ -297,7 +305,7 @@ export class LLMService {
                                             tool_call_id: toolCallId,
                                             content: toolResult,
                                         })
-                                        appendFragment(toolResult, 'tool_response')
+                                        appendFragment(toolResult, this.classifyToolOutput(toolResult))
                                     }
                                 } catch (error) {
                                     console.error('Failed to execute tool call:', error)
@@ -307,7 +315,7 @@ export class LLMService {
                                         tool_call_id: toolCallId,
                                         content: errorMessage,
                                     })
-                                    appendFragment(errorMessage, 'tool_response')
+                                    appendFragment(errorMessage, 'tool_response_text')
                                 }
                             } catch (error) {
                                 console.error('Failed to parse tool arguments JSON:', error)
@@ -320,7 +328,7 @@ export class LLMService {
                                         tool_call_id: `${toolBuffer.name}_${randomUUID()}`,
                                         content: errorMessage,
                                     })
-                                    appendFragment(errorMessage, 'tool_response')
+                                    appendFragment(errorMessage, 'tool_response_text')
                                 } else {
                                     abandon = true
                                 }
@@ -549,13 +557,31 @@ export class LLMService {
         }
     }
 
+    private classifyToolOutput(toolResult: string): MessageContentBlockType {
+        try {
+            const parsed = JSON.parse(toolResult)
+            if (parsed && typeof parsed === 'object') return 'tool_response_json'
+        } catch {
+            // Not JSON.
+        }
+        return 'tool_response_text'
+    }
+
     private parseStructuredToolResult(
         toolResult: string,
-    ): { type: 'image' | 'file_attachment'; content: string; name?: string } | null {
+    ): { type: 'image' | 'file_attachment' | 'markdown'; content: string; name?: string } | null {
         try {
             const parsed = JSON.parse(toolResult)
             if (!parsed || typeof parsed !== 'object') {
                 return null
+            }
+
+            if (parsed.type === 'markdown' && typeof parsed.content === 'string') {
+                return {
+                    type: 'markdown',
+                    content: parsed.content,
+                    name: typeof parsed.name === 'string' ? parsed.name : undefined,
+                }
             }
 
             if (parsed.type === 'image' && typeof parsed.content === 'string') {

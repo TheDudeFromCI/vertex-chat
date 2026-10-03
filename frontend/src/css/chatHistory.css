@@ -341,7 +341,9 @@
 }
 
 .chat-message-section-tool_call .chat-message-section-body,
-.chat-message-section-tool_response .chat-message-section-body {
+.chat-message-section-tool_response_json .chat-message-section-body,
+.chat-message-section-tool_response_text .chat-message-section-body,
+.chat-message-section-tool_response_md .chat-message-section-body {
     color: #d9e8f7;
 }
 

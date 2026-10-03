@@ -20,7 +20,15 @@ export interface Message {
 }
 
 export type MessageContent = MessageContentBlock[]
-export type MessageContentBlockType = 'text' | 'thinking' | 'tool_call' | 'tool_response' | 'image' | 'file_attachment'
+export type MessageContentBlockType =
+    | 'text'
+    | 'thinking'
+    | 'tool_call'
+    | 'tool_response_json'
+    | 'tool_response_text'
+    | 'tool_response_md'
+    | 'image'
+    | 'file_attachment'
 export interface MessageContentBlock {
     type: MessageContentBlockType
     content: string

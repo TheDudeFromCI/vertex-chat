@@ -104,7 +104,7 @@ export class ChatManager {
                         })
                     }
 
-                    if (block.type === 'tool_response') {
+                    if (block.type === 'tool_response_json' || block.type === 'tool_response_text') {
                         const parsed = this.tryParseToolContent(block.content)
                         if (parsed?.type === 'image') {
                             contentParts.push({
