@@ -6,6 +6,7 @@ import type { App } from '../App.js'
 const PLUS_SYMBOL = new URL('../../icons/plus.png', import.meta.url).href
 const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
 const EDIT_SYMBOL = new URL('../../icons/edit.png', import.meta.url).href
+const REDO_SYMBOL = new URL('../../icons/redo.png', import.meta.url).href
 
 export class ConversationEntry {
     private readonly app: App
@@ -23,6 +24,14 @@ export class ConversationEntry {
         const headerText = document.createElement('span')
         headerText.textContent = this.conversation.name
         header.appendChild(headerText)
+
+        const spinner = document.createElement('img')
+        spinner.src = REDO_SYMBOL
+        spinner.alt = 'Generating'
+        spinner.classList.add('generating-indicator')
+        spinner.setAttribute('data-conversation-id', this.conversation.conversationId)
+        spinner.hidden = !this.app.isGenerating(this.conversation.conversationId)
+        header.appendChild(spinner)
 
         const editButton = document.createElement('img')
         editButton.src = EDIT_SYMBOL
@@ -239,6 +248,13 @@ export class Workspaces {
         }
 
         return div
+    }
+
+    refreshGenerationIndicators(): void {
+        const indicators = this.container?.querySelectorAll<HTMLImageElement>('.generating-indicator') ?? []
+        for (const indicator of indicators) {
+            indicator.hidden = !this.app.isGenerating(indicator.getAttribute('data-conversation-id') as Uuid)
+        }
     }
 
     async reloadWorkspaces(): Promise<void> {

@@ -4,7 +4,6 @@ import type {
     Message,
     MessageContent,
     MessageContentBlock,
-    Persona,
     StreamedMessageContent,
     ToolPermissionRequest,
     Uuid,
@@ -41,8 +40,6 @@ export class InputBox {
     private generateIcon: HTMLImageElement | null = null
     private attachments: ChatAttachment[] = []
     private attachmentPreview: HTMLDivElement | null = null
-    private isGenerating = false
-    private generationAbortController: AbortController | null = null
 
     constructor(app: App) {
         this.app = app
@@ -106,7 +103,7 @@ export class InputBox {
         this.sendButton = sendButton
 
         sendButton.addEventListener('click', async () => {
-            if (this.isGenerating) {
+            if (this.isSelectedGenerating()) {
                 return
             }
 
@@ -167,8 +164,9 @@ export class InputBox {
         this.generateIcon = generateIcon
 
         generateButton.addEventListener('click', async () => {
-            if (this.isGenerating) {
-                this.cancelGeneration()
+            const conversationId = this.app.conversationId
+            if (conversationId && this.app.isGenerating(conversationId)) {
+                this.app.cancelGeneration(conversationId)
                 return
             }
 
@@ -178,17 +176,13 @@ export class InputBox {
                 return
             }
 
-            const conversationId = this.app.conversationId
             if (!conversationId) {
                 alert('No conversation selected.')
                 return
             }
 
-            this.generationAbortController = new AbortController()
-            this.setGenerationState(true)
-
             try {
-                await this.app.generateAgentMessage(conversationId, userId, this.generationAbortController.signal)
+                await this.app.generateAgentMessage(conversationId, userId)
             } catch (error) {
                 if (error instanceof DOMException && error.name === 'AbortError') {
                     return
@@ -196,10 +190,6 @@ export class InputBox {
 
                 console.error('Error generating message:', error)
                 alert('Failed to generate message. Please try again.')
-                return
-            } finally {
-                this.generationAbortController = null
-                this.setGenerationState(false)
             }
         })
         div.appendChild(generateButton)
@@ -326,14 +316,13 @@ export class InputBox {
         }
     }
 
-    private cancelGeneration(): void {
-        // Frontend placeholder cancel until backend cancellation semantics are implemented.
-        this.generationAbortController?.abort()
+    private isSelectedGenerating(): boolean {
+        const conversationId = this.app.conversationId
+        return conversationId !== null && this.app.isGenerating(conversationId)
     }
 
-    private setGenerationState(generating: boolean): void {
-        this.isGenerating = generating
-
+    refresh(): void {
+        const generating = this.isSelectedGenerating()
         if (this.input) {
             this.input.setAttribute('contenteditable', generating ? 'false' : 'true')
             this.input.classList.toggle('chat-input-field-disabled', generating)
@@ -729,12 +718,17 @@ export class ChatMessage {
     }
 }
 
+interface ConversationView {
+    messages: ChatMessage[]
+    container: HTMLDivElement
+}
+
 export class ChatHistory {
     private readonly app: App
     private readonly inputBox: InputBox
-    private messages: ChatMessage[] = []
+    private readonly views = new Map<Uuid, ConversationView>()
+    private outerContainer: HTMLDivElement | null = null
     private container: HTMLDivElement | null = null
-    private personaCache: Map<Uuid, Persona | null> = new Map()
 
     constructor(app: App) {
         this.app = app
@@ -754,134 +748,125 @@ export class ChatHistory {
         const outerContainer = document.createElement('div')
         outerContainer.id = 'chat-history-outer-container'
         div.appendChild(outerContainer)
-
-        const container = document.createElement('div')
-        container.id = 'chat-history-container'
-        outerContainer.appendChild(container)
-        this.container = container
+        this.outerContainer = outerContainer
 
         div.appendChild(this.inputBox.build())
+        this.inputBox.refresh()
 
-        for (const message of this.messages) {
-            container.appendChild(message.build())
-        }
-
-        this.scrollToBottom()
+        this.attachCurrentView()
 
         return div
     }
 
-    async reloadConversation(): Promise<void> {
-        this.messages = []
-        this.personaCache.clear()
-
-        if (this.container) {
-            this.container.replaceChildren()
-        }
-
-        const conversation = await this.fetchActiveConversation()
-        if (!conversation) {
-            return
-        }
-
-        for (const message of conversation.messages) {
-            const isLeftAligned = message.sender !== this.app.userId
-            const persona = await this.app.getPersona(message.sender)
-            if (!persona) {
-                this.messages.push(
-                    new ChatMessage(
-                        message.id,
-                        message.content,
-                        DEFAULT_PROFILE_PICTURE,
-                        '[Deleted User]',
-                        isLeftAligned,
-                        this.confirmAndDeleteMessage.bind(this),
-                    ),
-                )
-                if (this.container) {
-                    this.container.appendChild(this.messages[this.messages.length - 1].build())
-                }
-                continue
-            }
-
-            const avatarUrl = persona.avatarUrl ?? DEFAULT_PROFILE_PICTURE
-            this.messages.push(
-                new ChatMessage(
-                    message.id,
-                    message.content,
-                    avatarUrl,
-                    persona.name,
-                    isLeftAligned,
-                    this.confirmAndDeleteMessage.bind(this),
-                ),
-            )
-
-            if (this.container) {
-                this.container.appendChild(this.messages[this.messages.length - 1].build())
-            }
-        }
-
-        this.scrollToBottom()
+    refreshInputState(): void {
+        this.inputBox.refresh()
     }
 
-    private async fetchActiveConversation(): Promise<Conversation | null> {
-        const conversationId = this.app.conversationId
-        if (!conversationId) return null
-        return await fetchConversation(conversationId)
+    async loadConversation(conversation: Conversation): Promise<void> {
+        const container = document.createElement('div')
+        container.id = 'chat-history-container'
+        const view: ConversationView = { messages: [], container }
+
+        for (const message of conversation.messages) {
+            const chatMessage = await this.createChatMessage(message)
+            view.messages.push(chatMessage)
+            container.appendChild(chatMessage.build())
+        }
+
+        this.views.set(conversation.id, view)
+    }
+
+    unloadConversation(conversationId: Uuid): void {
+        this.views.delete(conversationId)
+    }
+
+    async showConversation(): Promise<void> {
+        this.attachCurrentView()
+        this.inputBox.refresh()
+    }
+
+    // Rebuilds every loaded view, e.g. when the selected profile changes message alignment.
+    async reloadAll(): Promise<void> {
+        for (const id of [...this.views.keys()]) {
+            await this.loadConversation(await fetchConversation(id))
+        }
+        this.attachCurrentView()
+    }
+
+    private attachCurrentView(): void {
+        const id = this.app.conversationId
+        const view = id ? this.views.get(id) : undefined
+        this.container = view?.container ?? null
+
+        if (!this.outerContainer) return
+
+        if (view) {
+            this.outerContainer.replaceChildren(view.container)
+            this.scrollToBottom()
+        } else {
+            this.outerContainer.replaceChildren()
+        }
+    }
+
+    private async createChatMessage(message: Message): Promise<ChatMessage> {
+        const persona = await this.app.getPersona(message.sender)
+        return new ChatMessage(
+            message.id,
+            message.content,
+            persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE,
+            persona?.name ?? '[Deleted User]',
+            message.sender !== this.app.userId,
+            this.confirmAndDeleteMessage.bind(this),
+        )
+    }
+
+    private findMessage(messageId: Uuid): { view: ConversationView; message: ChatMessage } | null {
+        for (const view of this.views.values()) {
+            const message = view.messages.find((msg) => msg.id === messageId)
+            if (message) return { view, message }
+        }
+        return null
     }
 
     async appendMessage(message: Message): Promise<void> {
-        const shouldAutoScroll = this.isNearBottom()
-        const isLeftAligned = message.sender !== this.app.userId
+        const chatMessage = await this.createChatMessage(message)
+        const view = this.views.get(message.conversationId)
+        if (!view) return
 
-        const persona = await this.app.getPersona(message.sender)
-        const avatarUrl = persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE
-        const personaName = persona?.name ?? '[Deleted User]'
-        const chatMessage = new ChatMessage(
-            message.id,
-            message.content,
-            avatarUrl,
-            personaName,
-            isLeftAligned,
-            this.confirmAndDeleteMessage.bind(this),
-        )
-
-        this.messages.push(chatMessage)
-        if (this.container) {
-            this.container.appendChild(chatMessage.build())
-        }
+        const shouldAutoScroll = this.isNearBottom(view.container)
+        view.messages.push(chatMessage)
+        view.container.appendChild(chatMessage.build())
 
         if (shouldAutoScroll) {
-            this.scrollToBottom()
+            this.scrollToBottom(view.container)
         }
     }
 
     updateMessage(messageId: Uuid, newContent: MessageContent): void {
-        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
-        if (messageIndex === -1) return // Ignore messages we can't see
+        const found = this.findMessage(messageId)
+        if (!found) return
 
-        const existingMessage = this.messages[messageIndex]
-        existingMessage.content = newContent
-        existingMessage.build()
-        this.scrollToBottom()
+        found.message.content = newContent
+        found.message.build()
+        this.scrollToBottom(found.view.container)
     }
 
     async showToolPermissionRequest(messageId: Uuid, request: ToolPermissionRequest): Promise<void> {
-        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
-        if (messageIndex === -1) return
+        const found = this.findMessage(messageId)
+        if (!found) return
 
-        this.messages[messageIndex].showToolPermissionRequest(request, async (requestId, allowed) => {
+        found.message.showToolPermissionRequest(request, async (requestId, allowed) => {
             await submitToolPermissionDecision(requestId, allowed)
         })
 
-        this.scrollToBottom()
+        this.scrollToBottom(found.view.container)
     }
 
     streamMessageContent(messageId: Uuid, fragment: StreamedMessageContent): void {
-        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
-        if (messageIndex === -1) return // Ignore messages we can't see
+        const found = this.findMessage(messageId)
+        if (!found) return
 
-        const existingMessage = this.messages[messageIndex]
+        const existingMessage = found.message
         const blockIndex = existingMessage.content.length - 1
 
         console.log(`Streaming content for message ${messageId}:`, fragment)
@@ -902,13 +887,11 @@ export class ChatHistory {
     }
 
     removeMessage(messageId: Uuid): void {
-        const messageIndex = this.messages.findIndex((msg) => msg.id === messageId)
-        if (messageIndex === -1) return
+        const found = this.findMessage(messageId)
+        if (!found) return
 
-        const [message] = this.messages.splice(messageIndex, 1)
-        if (message.element) {
-            message.element.remove()
-        }
+        found.view.messages = found.view.messages.filter((msg) => msg !== found.message)
+        found.message.element?.remove()
     }
 
     private async confirmAndDeleteMessage(messageId: Uuid, skipConfirmation: boolean): Promise<void> {
@@ -927,20 +910,16 @@ export class ChatHistory {
         }
     }
 
-    private isNearBottom(thresholdPx: number = 64): boolean {
-        if (!this.container) {
-            return false
-        }
-
-        const remainingScroll = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight
+    private isNearBottom(container: HTMLDivElement, thresholdPx: number = 64): boolean {
+        const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight
         return remainingScroll <= thresholdPx
     }
 
-    scrollToBottom(): void {
-        if (!this.container) {
+    scrollToBottom(container: HTMLDivElement | null = this.container): void {
+        if (!container) {
             return
         }
 
-        this.container.scrollTop = this.container.scrollHeight
+        container.scrollTop = container.scrollHeight
     }
 }

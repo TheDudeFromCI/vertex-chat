@@ -108,11 +108,31 @@
     margin-right: auto;
 }
 
-.conversation-header:not(:hover) img {
+.conversation-header:not(:hover) img:not(.generating-indicator) {
     display: none;
 }
 
-.conversation-header:hover img {
+.conversation-header .generating-indicator {
+    display: block;
+    height: 1.2rem;
+    aspect-ratio: 1;
+    margin-right: 4px;
+    filter: invert(1) brightness(0.8);
+    animation: generating-spin 1s linear infinite;
+    pointer-events: none;
+}
+
+.conversation-header .generating-indicator[hidden] {
+    display: none;
+}
+
+@keyframes generating-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.conversation-header:hover img:not(.generating-indicator) {
     display: block;
 
     width: auto;
@@ -123,7 +143,7 @@
     filter: invert(1) brightness(0.8);
 }
 
-.conversation-header img:hover {
+.conversation-header img:not(.generating-indicator):hover {
     background-color: hsl(0 0% 50%);
     filter: invert(1) brightness(1);
 }

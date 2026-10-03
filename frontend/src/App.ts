@@ -13,11 +13,11 @@ import {
 } from './api/ConversationsAPI.js'
 import { generateMessageContent } from './api/ChatGenerationAPI.js'
 import { ChatManager } from './impl/Chat.js'
+import { GenerationManager, type GenerationTask } from './impl/GenerationManager.js'
+import { AGENT_RESPONSE_MODE_KEY, LoadedConversation, type AgentResponseMode } from './impl/LoadedConversation.js'
 import { PersonaCache } from './impl/Personas.js'
 
-export type AgentResponseMode = 'manual' | 'automatic' | 'collaborative'
-
-const AGENT_RESPONSE_MODE_KEY = 'agentResponseMode'
+export type { AgentResponseMode }
 
 export class App {
     private readonly chatHistory: ChatHistory
@@ -27,7 +27,8 @@ export class App {
     private readonly chatManager: ChatManager
     private _userId: Uuid | null = null
     private _conversationId: Uuid | null = null
-    private _agentResponseMode: AgentResponseMode = 'manual'
+    private readonly loadedConversations = new Map<Uuid, LoadedConversation>()
+    private readonly generations: GenerationManager
     private automationQueue: Promise<void> = Promise.resolve()
 
     constructor() {
@@ -36,6 +37,11 @@ export class App {
         this.contextPanel = new ContextPanel(this)
         this.personaCache = new PersonaCache()
         this.chatManager = new ChatManager(this)
+        this.generations = new GenerationManager((task) => this.runGeneration(task))
+        this.generations.onChange(() => {
+            this.workspaces.refreshGenerationIndicators()
+            this.chatHistory.refreshInputState()
+        })
     }
 
     build(): HTMLDivElement {
@@ -67,16 +73,15 @@ export class App {
     }
 
     async loadConversation(conversationId: Uuid | null): Promise<void> {
-        this._conversationId = conversationId
-
-        if (!conversationId) {
-            this._agentResponseMode = 'manual'
-        } else {
+        if (conversationId && !this.loadedConversations.has(conversationId)) {
             const conversation = await fetchConversation(conversationId)
-            this._agentResponseMode = this.parseAgentResponseMode(conversation.metadata[AGENT_RESPONSE_MODE_KEY])
+            this.loadedConversations.set(conversationId, new LoadedConversation(conversation))
+            await this.chatHistory.loadConversation(conversation)
         }
 
-        await this.chatHistory.reloadConversation()
+        this._conversationId = conversationId
+
+        await this.chatHistory.showConversation()
         await this.contextPanel.reloadParticipants()
     }
 
@@ -85,10 +90,22 @@ export class App {
             this._conversationId = null
         }
 
+        this.generations.cancel(conversationId)
+        this.loadedConversations.delete(conversationId)
+        this.chatHistory.unloadConversation(conversationId)
+
         await deleteConversation(conversationId)
-        await this.chatHistory.reloadConversation()
+        await this.chatHistory.showConversation()
         await this.contextPanel.reloadParticipants()
         await this.workspaces.reloadWorkspaces()
+    }
+
+    isGenerating(conversationId: Uuid): boolean {
+        return this.generations.isGenerating(conversationId)
+    }
+
+    cancelGeneration(conversationId: Uuid): void {
+        this.generations.cancel(conversationId)
     }
 
     async renameConversation(conversationId: Uuid, newName: string): Promise<void> {
@@ -118,7 +135,12 @@ export class App {
         await this.chatHistory.removeMessage(messageId)
     }
 
-    async generateAgentMessage(conversationId: Uuid, agentId: Uuid, signal?: AbortSignal): Promise<void> {
+    generateAgentMessage(conversationId: Uuid, agentId: Uuid): Promise<void> {
+        return this.generations.enqueue(conversationId, agentId)
+    }
+
+    private async runGeneration(task: GenerationTask): Promise<void> {
+        const { conversationId, agentId } = task
         const messagePlaceholder = await this.sendMessage(conversationId, agentId, [], undefined, {
             suppressAutomation: true,
         })
@@ -134,7 +156,7 @@ export class App {
         }
 
         try {
-            const generated = await generateMessageContent(request, callback, signal)
+            const generated = await generateMessageContent(request, callback, task.controller.signal)
             await updateMessage(messagePlaceholder.id, generated)
             await this.chatHistory.updateMessage(messagePlaceholder.id, generated)
             this.enqueueAutoResponse(conversationId, agentId)
@@ -146,23 +168,18 @@ export class App {
 
     async setUserId(userId: Uuid | null): Promise<void> {
         this._userId = userId
-        await this.chatHistory.reloadConversation()
+        await this.chatHistory.reloadAll()
     }
 
     async setAgentResponseMode(mode: AgentResponseMode): Promise<void> {
-        this._agentResponseMode = mode
-
-        if (!this._conversationId) {
+        const loaded = this._conversationId ? this.loadedConversations.get(this._conversationId) : undefined
+        if (!loaded) {
             return
         }
 
-        const conversation = await fetchConversation(this._conversationId)
-        const nextMetadata = {
-            ...conversation.metadata,
-            [AGENT_RESPONSE_MODE_KEY]: mode,
-        }
-
-        await updateConversationMetadata(this._conversationId, nextMetadata)
+        const conversation = await fetchConversation(loaded.id)
+        loaded.setAgentResponseMode(mode)
+        await updateConversationMetadata(loaded.id, { ...conversation.metadata, [AGENT_RESPONSE_MODE_KEY]: mode })
     }
 
     async reloadPersonas(): Promise<void> {
@@ -183,7 +200,8 @@ export class App {
     }
 
     get agentResponseMode(): AgentResponseMode {
-        return this._agentResponseMode
+        const loaded = this._conversationId ? this.loadedConversations.get(this._conversationId) : undefined
+        return loaded?.agentResponseMode ?? 'manual'
     }
 
     get personaList(): Readonly<Persona[]> {
@@ -196,12 +214,14 @@ export class App {
                 await this.generateAutoResponse(conversationId, sender)
             })
             .catch((error) => {
+                if (error instanceof DOMException && error.name === 'AbortError') return
                 console.error('Automatic response generation failed:', error)
             })
     }
 
     private async generateAutoResponse(conversationId: Uuid, sender: Uuid): Promise<void> {
-        if (this._conversationId !== conversationId) {
+        const loaded = this.loadedConversations.get(conversationId)
+        if (!loaded) {
             return
         }
 
@@ -210,11 +230,12 @@ export class App {
             return
         }
 
-        if (this._agentResponseMode === 'manual') {
+        const mode = loaded.agentResponseMode
+        if (mode === 'manual') {
             return
         }
 
-        if (this._agentResponseMode === 'automatic' && sender !== userId) {
+        if (mode === 'automatic' && sender !== userId) {
             return
         }
 
@@ -222,7 +243,7 @@ export class App {
         const nonSelectedParticipants = conversation.participants.filter((participantId) => participantId !== userId)
 
         const eligibleParticipants =
-            this._agentResponseMode === 'collaborative'
+            mode === 'collaborative'
                 ? nonSelectedParticipants.filter((participantId) => participantId !== sender)
                 : nonSelectedParticipants
 
@@ -237,13 +258,5 @@ export class App {
         }
 
         await this.generateAgentMessage(conversationId, responderId)
-    }
-
-    private parseAgentResponseMode(mode: unknown): AgentResponseMode {
-        if (mode === 'automatic' || mode === 'collaborative') {
-            return mode
-        }
-
-        return 'manual'
     }
 }
