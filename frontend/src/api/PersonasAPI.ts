@@ -87,20 +87,26 @@ export async function deletePersona(personaId: Uuid): Promise<void> {
     }
 }
 
-export const CORE_FILE_NAMES = ['Soul', 'Instructions', 'Memories', 'Notes', 'Subconcious'] as const
-export type CoreFileName = (typeof CORE_FILE_NAMES)[number]
-
-export async function fetchCoreFiles(personaId: Uuid): Promise<Record<CoreFileName, string>> {
+export async function fetchCoreFiles(personaId: Uuid): Promise<Array<string>> {
     const response = await fetch(`/api/personas/${personaId}/core-files`)
     if (!response.ok) {
         const errorResponse = await response.json()
         throw new Error(`Failed to fetch core files: ${errorResponse['error']}`)
     }
-    return (await response.json()) as Record<CoreFileName, string>
+    return (await response.json()) as Array<string>
 }
 
-// Returns the persona, whose prompt may have been regenerated.
-export async function updateCoreFile(personaId: Uuid, name: CoreFileName, content: string): Promise<Persona> {
+export async function fetchCoreFile(personaId: Uuid, name: string): Promise<string> {
+    const response = await fetch(`/api/personas/${personaId}/core-files/${name}`)
+    if (!response.ok) {
+        const errorResponse = await response.json()
+        throw new Error(`Failed to fetch core file: ${errorResponse['error']}`)
+    }
+    const data = await response.json()
+    return data.content as string
+}
+
+export async function updateCoreFile(personaId: Uuid, name: string, content: string): Promise<void> {
     const response = await fetch(`/api/personas/${personaId}/core-files/${name}`, {
         method: 'PUT',
         headers: {
@@ -113,6 +119,4 @@ export async function updateCoreFile(personaId: Uuid, name: CoreFileName, conten
         const errorResponse = await response.json()
         throw new Error(`Failed to update core file: ${errorResponse['error']}`)
     }
-
-    return (await response.json()) as Persona
 }

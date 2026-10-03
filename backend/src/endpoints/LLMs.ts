@@ -85,6 +85,7 @@ export default async function register(
     llmService.registerTool(coreFileTools.readCoreFile)
     llmService.registerTool(coreFileTools.writeCoreFile)
     llmService.registerTool(coreFileTools.appendCoreFile)
+    llmService.registerTool(coreFileTools.deleteCoreFile)
 
     const subagentTool = buildSubagentTool(llmService, conversationStore, personaStore)
     llmService.registerTool(subagentTool)

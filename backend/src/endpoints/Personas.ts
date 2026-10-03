@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express'
 import type { Uuid } from 'vertex-common'
 import type { PersonaStore } from '../services/PersonaStore.js'
-import { isCoreFileName, type CoreFileStore } from '../services/CoreFileStore.js'
+import { type CoreFileStore } from '../services/CoreFileStore.js'
 
 export default function register(app: Express, personaStore: PersonaStore, coreFileStore: CoreFileStore): void {
     app.get('/api/personas/:personaId/core-files', (req: Request, res: Response) => {
@@ -15,15 +15,28 @@ export default function register(app: Express, personaStore: PersonaStore, coreF
         res.json(coreFileStore.listFiles(personaId))
     })
 
+    app.get('/api/personas/:personaId/core-files/:name', (req: Request, res: Response) => {
+        const personaId = req.params['personaId'] as Uuid
+        const name = req.params['name'] as string
+
+        if (!personaStore.getPersona(personaId)) {
+            res.status(404).json({ error: 'Persona not found' })
+            return
+        }
+
+        const content = coreFileStore.getFile(personaId, name)
+        if (content === undefined) {
+            res.status(404).json({ error: 'Core file not found' })
+            return
+        }
+
+        res.json({ content })
+    })
+
     app.put('/api/personas/:personaId/core-files/:name', (req: Request, res: Response) => {
         const personaId = req.params['personaId'] as Uuid
         const name = req.params['name'] as string
         const content = req.body.content as unknown
-
-        if (!isCoreFileName(name)) {
-            res.status(400).json({ error: 'Invalid core file name' })
-            return
-        }
 
         if (typeof content !== 'string') {
             res.status(400).json({ error: 'Missing content' })
@@ -35,7 +48,7 @@ export default function register(app: Express, personaStore: PersonaStore, coreF
             return
         }
 
-        res.json(personaStore.getPersona(personaId))
+        res.json({ message: 'Core file updated' })
     })
     app.get('/api/personas', (_req: Request, res: Response) => {
         console.log('Received request to list personas')

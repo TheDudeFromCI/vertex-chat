@@ -2,18 +2,15 @@ import { type Database } from 'better-sqlite3'
 import type { Uuid } from 'vertex-common'
 import type { PersonaStore } from './PersonaStore.js'
 
-export const CORE_FILE_NAMES = ['Soul', 'Instructions', 'Memories', 'Notes', 'Subconcious'] as const
-export type CoreFileName = (typeof CORE_FILE_NAMES)[number]
-
-// Files that contribute to the persona prompt, in prompt order. subconcious.md is intentionally excluded.
-const PROMPT_FILE_NAMES: CoreFileName[] = ['Soul', 'Instructions', 'Memories', 'Notes']
+export const ROOT_FILE_NAMES = ['Soul', 'Instructions', 'Memories', 'Notes', 'Subconscious'] as const
+const PROMPT_FILE_NAMES: string[] = ['Soul', 'Instructions', 'Memories', 'Notes']
 
 interface CoreFileRow {
     content: string
 }
 
-export function isCoreFileName(name: string): name is CoreFileName {
-    return (CORE_FILE_NAMES as readonly string[]).includes(name)
+export function isRootFile(name: string): boolean {
+    return (ROOT_FILE_NAMES as readonly string[]).includes(name)
 }
 
 export class CoreFileStore {
@@ -26,21 +23,34 @@ export class CoreFileStore {
         this.initDatabase()
     }
 
-    getFile(personaId: Uuid, name: CoreFileName): string {
+    getFile(personaId: Uuid, name: string): string {
         const row = this.database
             .prepare('SELECT content FROM persona_core_files WHERE persona_id = ? AND name = ?')
             .get(personaId, name) as CoreFileRow | undefined
         return row?.content ?? ''
     }
 
-    listFiles(personaId: Uuid): Record<CoreFileName, string> {
-        const files = {} as Record<CoreFileName, string>
-        for (const name of CORE_FILE_NAMES) files[name] = this.getFile(personaId, name)
+    listFiles(personaId: Uuid): Array<string> {
+        const row = this.database
+            .prepare('SELECT name FROM persona_core_files WHERE persona_id = ?')
+            .all(personaId) as { name: string }[]
+
+        const files: string[] = []
+        for (const { name } of row) {
+            files.push(name)
+        }
         return files
     }
 
-    setFile(personaId: Uuid, name: CoreFileName, content: string): boolean {
+    setFile(personaId: Uuid, name: string, content: string): boolean {
         if (!this.personaStore.getPersona(personaId)) return false
+
+        if (content == '' && !isRootFile(name)) {
+            this.database
+                .prepare('DELETE FROM persona_core_files WHERE persona_id = ? AND name = ?')
+                .run(personaId, name)
+            return true
+        }
 
         this.database
             .prepare(
@@ -53,7 +63,7 @@ export class CoreFileStore {
         return true
     }
 
-    appendFile(personaId: Uuid, name: CoreFileName, content: string): boolean {
+    appendFile(personaId: Uuid, name: string, content: string): boolean {
         const existing = this.getFile(personaId, name)
         const separator = existing && !existing.endsWith('\n') ? '\n' : ''
         return this.setFile(personaId, name, existing + separator + content)

@@ -1,4 +1,4 @@
-import { CORE_FILE_NAMES, isCoreFileName, type CoreFileName, type CoreFileStore } from '../services/CoreFileStore.js'
+import { ROOT_FILE_NAMES, isRootFile, type CoreFileStore } from '../services/CoreFileStore.js'
 import type { Tool } from '../services/LLMService.js'
 
 const NO_AGENT = 'Error: No agent is associated with this request.'
@@ -6,7 +6,7 @@ const NO_AGENT = 'Error: No agent is associated with this request.'
 const fileParam = {
     name: 'file',
     type: 'string',
-    description: `The core file name. One of: ${CORE_FILE_NAMES.join(', ')}.`,
+    description: 'The core file name.',
     required: true,
 }
 
@@ -17,22 +17,21 @@ const contentParam = {
     required: true,
 }
 
-function parseFile(value: unknown): CoreFileName | null {
-    return typeof value === 'string' && isCoreFileName(value) ? value : null
-}
-
-const invalidFile = `Error: Invalid file. Must be one of: ${CORE_FILE_NAMES.join(', ')}.`
-
 export function buildCoreFileTools(coreFileStore: CoreFileStore) {
     const listCoreFiles: Tool = {
         name: 'list_core_files',
-        description: 'Lists your core files and their sizes in characters.',
+        description: 'Lists your core files.',
         params: [],
         needsPermission: false,
         execute: async (_, { agentId }) => {
             if (!agentId) return NO_AGENT
             const files = coreFileStore.listFiles(agentId)
-            return CORE_FILE_NAMES.map((name) => `${name}: ${files[name].length} characters`).join('\n')
+            const allFiles = {
+                rootFiles: ROOT_FILE_NAMES,
+                standardFiles: files.filter((name) => !isRootFile(name)),
+            }
+
+            return JSON.stringify(allFiles, null, 2)
         },
     }
 
@@ -43,41 +42,56 @@ export function buildCoreFileTools(coreFileStore: CoreFileStore) {
         needsPermission: false,
         execute: async ({ file }, { agentId }) => {
             if (!agentId) return NO_AGENT
-            const name = parseFile(file)
-            if (!name) return invalidFile
-            return coreFileStore.getFile(agentId, name) || '(empty)'
+            if (typeof file !== 'string') return 'Error: file must be a string.'
+
+            return coreFileStore.getFile(agentId, file) || '(empty)'
         },
     }
 
     const writeCoreFile: Tool = {
         name: 'write_core_file',
         description:
-            'Replaces the entire content of one of your core files. Changes to all files except Subconcious will update your prompt.',
+            'Replaces the entire content of one of your core files. Changes to root files will update your prompt.',
         params: [fileParam, contentParam],
         needsPermission: false,
         execute: async ({ file, content }, { agentId }) => {
             if (!agentId) return NO_AGENT
-            const name = parseFile(file)
-            if (!name) return invalidFile
+            if (typeof file !== 'string') return 'Error: file must be a string.'
             if (typeof content !== 'string') return 'Error: content must be a string.'
-            return coreFileStore.setFile(agentId, name, content) ? `Updated ${name}.` : 'Error: Agent not found.'
+
+            return coreFileStore.setFile(agentId, file, content) ? `Updated: ${file}.` : 'Error: Agent not found.'
         },
     }
 
     const appendCoreFile: Tool = {
         name: 'append_core_file',
-        description:
-            'Appends text to one of your core files. Changes to all files except Subconcious will update your prompt.',
+        description: 'Appends text to one of your core files. Changes to root files will update your prompt.',
         params: [fileParam, contentParam],
         needsPermission: false,
         execute: async ({ file, content }, { agentId }) => {
             if (!agentId) return NO_AGENT
-            const name = parseFile(file)
-            if (!name) return invalidFile
+            if (typeof file !== 'string') return 'Error: file must be a string.'
             if (typeof content !== 'string') return 'Error: content must be a string.'
-            return coreFileStore.appendFile(agentId, name, content) ? `Appended to ${name}.` : 'Error: Agent not found.'
+
+            return coreFileStore.appendFile(agentId, file, content)
+                ? `Appended to: ${file}.`
+                : 'Error: Agent not found.'
         },
     }
 
-    return { listCoreFiles, readCoreFile, writeCoreFile, appendCoreFile }
+    const deleteCoreFile: Tool = {
+        name: 'delete_core_file',
+        description: 'Deletes one of your core files. Cannot delete root files.',
+        params: [fileParam],
+        needsPermission: false,
+        execute: async ({ file }, { agentId }) => {
+            if (!agentId) return NO_AGENT
+            if (typeof file !== 'string') return 'Error: file must be a string.'
+            if (isRootFile(file)) return `Error: Cannot delete root file: ${file}.`
+
+            return coreFileStore.setFile(agentId, file, '') ? `Deleted file: ${file}.` : 'Error: Agent not found.'
+        },
+    }
+
+    return { listCoreFiles, readCoreFile, writeCoreFile, appendCoreFile, deleteCoreFile }
 }

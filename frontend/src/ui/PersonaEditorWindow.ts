@@ -3,18 +3,18 @@ import '../css/personaEditorWindow.css'
 import type { Persona, Uuid } from 'vertex-common'
 import { updateConversationParticipants } from '../api/ConversationsAPI.js'
 import {
-    CORE_FILE_NAMES,
     createPersona,
     deletePersona,
-    fetchCoreFiles,
+    fetchCoreFile,
+    fetchPersona,
     setPersonaAvatar,
     updateCoreFile,
     updatePersona,
-    type CoreFileName,
 } from '../api/PersonasAPI.js'
 import type { App } from '../App.js'
 import MarkdownIt from 'markdown-it'
 
+const ROOT_FILE_NAMES = ['Soul', 'Instructions', 'Memories', 'Notes', 'Subconscious']
 const SAVE_SYMBOL = new URL('../../icons/save.png', import.meta.url).href
 const EXPAND_SYMBOL = new URL('../../icons/expand.png', import.meta.url).href
 const SHRINK_SYMBOL = new URL('../../icons/shrink.png', import.meta.url).href
@@ -269,7 +269,7 @@ export class PersonaEditorWindow {
             this.setAutosaveState('saving')
             this.scheduleAutosave(selected.id)
         })
-        void this.loadCoreFiles(selected, addTab, promptField.setValue)
+        void this.loadRootFiles(selected, addTab, promptField.setValue)
 
         const metadata = document.createElement('div')
         metadata.classList.add('participants-editor-metadata')
@@ -399,21 +399,23 @@ export class PersonaEditorWindow {
         }
     }
 
-    private async loadCoreFiles(
+    private async loadRootFiles(
         persona: Persona,
         addTab: (label: string, panel: HTMLElement) => void,
         setPromptValue: (value: string) => void,
     ): Promise<void> {
-        let files: Record<CoreFileName, string>
+        let files: Record<string, string> = {}
         try {
-            files = await fetchCoreFiles(persona.id)
+            for (const name of ROOT_FILE_NAMES) {
+                files[name] = await fetchCoreFile(persona.id, name)
+            }
         } catch (error) {
             console.error('Failed to load core files:', error)
             this.setStatus('Failed to load core files.')
             return
         }
 
-        for (const name of CORE_FILE_NAMES) {
+        for (const name of ROOT_FILE_NAMES) {
             const field = this.buildMarkdownField(`Edit ${name}`, files[name], (value) => {
                 this.scheduleCoreFileSave(persona, name, value, setPromptValue)
             })
@@ -423,7 +425,7 @@ export class PersonaEditorWindow {
 
     private scheduleCoreFileSave(
         persona: Persona,
-        name: CoreFileName,
+        name: string,
         content: string,
         setPromptValue: (value: string) => void,
     ): void {
@@ -437,10 +439,12 @@ export class PersonaEditorWindow {
         const timer = window.setTimeout(async () => {
             this.coreFileTimers.delete(key)
             try {
-                const updated = await updateCoreFile(persona.id, name, content)
                 if (revision !== this.coreFileRevision) {
                     return
                 }
+
+                await updateCoreFile(persona.id, name, content)
+                const updated = await fetchPersona(persona.id)
 
                 if (updated.prompt !== persona.prompt) {
                     persona.prompt = updated.prompt
