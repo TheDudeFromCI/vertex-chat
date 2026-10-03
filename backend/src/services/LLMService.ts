@@ -273,7 +273,8 @@ export class LLMService {
                                             toolMessageContent.push({
                                                 type: 'text',
                                                 text:
-                                                    parsedToolResult.type === 'markdown'
+                                                    parsedToolResult.type === 'markdown' ||
+                                                    parsedToolResult.type === 'text'
                                                         ? parsedToolResult.content
                                                         : toolResult,
                                             })
@@ -284,8 +285,13 @@ export class LLMService {
                                             tool_call_id: toolCallId,
                                             content: toolMessageContent,
                                         })
-                                        if (parsedToolResult.type === 'markdown') {
-                                            appendFragment(parsedToolResult.content, 'tool_response_md')
+                                        if (parsedToolResult.type === 'markdown' || parsedToolResult.type === 'text') {
+                                            appendFragment(
+                                                parsedToolResult.content,
+                                                parsedToolResult.type === 'markdown'
+                                                    ? 'tool_response_md'
+                                                    : 'tool_response_text',
+                                            )
                                         } else {
                                             appendFragment(
                                                 `Tool result: ${parsedToolResult.name ?? 'response'}`,
@@ -569,16 +575,16 @@ export class LLMService {
 
     private parseStructuredToolResult(
         toolResult: string,
-    ): { type: 'image' | 'file_attachment' | 'markdown'; content: string; name?: string } | null {
+    ): { type: 'image' | 'file_attachment' | 'markdown' | 'text'; content: string; name?: string } | null {
         try {
             const parsed = JSON.parse(toolResult)
             if (!parsed || typeof parsed !== 'object') {
                 return null
             }
 
-            if (parsed.type === 'markdown' && typeof parsed.content === 'string') {
+            if ((parsed.type === 'markdown' || parsed.type === 'text') && typeof parsed.content === 'string') {
                 return {
-                    type: 'markdown',
+                    type: parsed.type,
                     content: parsed.content,
                     name: typeof parsed.name === 'string' ? parsed.name : undefined,
                 }

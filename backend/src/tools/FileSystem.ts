@@ -147,7 +147,9 @@ export function buildFileTools(allowedDirectories: string[]) {
             }
 
             return JSON.stringify({
+                type: ['.md', '.markdown'].includes(extension) ? 'markdown' : 'text',
                 path: filePath,
+                name: basename(filePath),
                 content: fileBuffer.toString('utf8'),
             })
         },
