@@ -803,11 +803,6 @@ export class ChatHistory {
         div.id = 'chat-history'
         div.classList.add('outer-container')
 
-        const header = document.createElement('div')
-        header.id = 'chat-history-header'
-        header.textContent = 'Chat History'
-        div.appendChild(header)
-
         const outerContainer = document.createElement('div')
         outerContainer.id = 'chat-history-outer-container'
         div.appendChild(outerContainer)
