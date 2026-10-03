@@ -127,11 +127,13 @@ test('optimizeTokenCount trims the oldest conversation when it exceeds the model
 
     const optimized = await (service as any).optimizeTokenCount(request)
 
-    assert.equal(optimized.messages.length, 2)
+    assert.equal(optimized.request.messages.length, 2)
     assert.deepEqual(
-        optimized.messages.map((message: any) => message.content),
+        optimized.request.messages.map((message: any) => message.content),
         ['reply 2', 'message 3'],
     )
+    assert.equal(optimized.totalTokens, 150)
+    assert.equal(optimized.truncatedTokens, 60)
 })
 
 const textChunk = (content: string) => ({ choices: [{ delta: { content } }] })

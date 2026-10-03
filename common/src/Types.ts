@@ -42,6 +42,15 @@ export interface MessageContentBlock {
 export interface StreamedMessageContent {
     type: MessageContentBlockType
     delta: string
+    tokens: number
+}
+
+export interface BeginLLMGeneration {
+    type: 'begin_llm_generation'
+    promptTokens: number
+    totalTokens: number
+    // Post-optimization; this is what actually occupies the context window.
+    truncatedTokens: number
 }
 
 export interface ToolPermissionRequest {
@@ -51,7 +60,16 @@ export interface ToolPermissionRequest {
     args: Record<string, unknown>
 }
 
-export type StreamedLLMEvent = StreamedMessageContent | ToolPermissionRequest
+export interface RenameConversation {
+    type: 'rename_conversation'
+    name: string
+}
+
+export type StreamedLLMEvent =
+    | StreamedMessageContent
+    | ToolPermissionRequest
+    | BeginLLMGeneration
+    | RenameConversation
 
 export interface Conversation {
     id: Uuid

@@ -11,13 +11,21 @@ import {
     updateConversationMetadata,
     updateMessage,
 } from './api/ConversationsAPI.js'
-import { generateMessageContent } from './api/ChatGenerationAPI.js'
+import { generateMessageContent, fetchContextWindow } from './api/ChatGenerationAPI.js'
 import { ChatManager } from './impl/Chat.js'
 import { GenerationManager, type GenerationTask } from './impl/GenerationManager.js'
 import { AGENT_RESPONSE_MODE_KEY, LoadedConversation, type AgentResponseMode } from './impl/LoadedConversation.js'
 import { PersonaCache } from './impl/Personas.js'
 
 export type { AgentResponseMode }
+
+const CONTEXT_TOKENS_KEY = 'contextTokens'
+
+export interface ContextUsage {
+    used: number
+    promptTokens: number
+    totalTokens: number
+}
 
 export class App {
     private readonly chatHistory: ChatHistory
@@ -30,8 +38,16 @@ export class App {
     private readonly loadedConversations = new Map<Uuid, LoadedConversation>()
     private readonly generations: GenerationManager
     private automationQueue: Promise<void> = Promise.resolve()
+    private contextWindow = 0
+    private readonly contextTokens = new Map<Uuid, ContextUsage>()
 
     constructor() {
+        fetchContextWindow()
+            .then((max) => {
+                this.contextWindow = max
+                this.chatHistory.refreshInputState()
+            })
+            .catch((error) => console.error('Failed to load context window size:', error))
         this.chatHistory = new ChatHistory(this)
         this.workspaces = new Workspaces(this)
         this.contextPanel = new ContextPanel(this)
@@ -76,6 +92,14 @@ export class App {
         if (conversationId && !this.loadedConversations.has(conversationId)) {
             const conversation = await fetchConversation(conversationId)
             this.loadedConversations.set(conversationId, new LoadedConversation(conversation))
+            const saved = conversation.metadata[CONTEXT_TOKENS_KEY] as Partial<ContextUsage> | undefined
+            if (saved && typeof saved === 'object' && typeof saved.used === 'number') {
+                this.contextTokens.set(conversationId, {
+                    used: saved.used,
+                    promptTokens: saved.promptTokens ?? 0,
+                    totalTokens: saved.totalTokens ?? saved.used,
+                })
+            }
             await this.chatHistory.loadConversation(conversation)
         }
 
@@ -156,6 +180,12 @@ export class App {
         const request = await this.chatManager.generateChatCompletionRequest(conversationId, agentId)
 
         const callback = async (event: StreamedLLMEvent) => {
+            this.trackContext(conversationId, event)
+            if (event.type === 'begin_llm_generation') return
+            if (event.type === 'rename_conversation') {
+                await this.renameConversation(conversationId, event.name)
+                return
+            }
             if (event.type === 'tool_permission_request') {
                 await this.chatHistory.showToolPermissionRequest(messagePlaceholder.id, event)
                 return
@@ -172,6 +202,8 @@ export class App {
         } catch (error) {
             await this.deleteMessage(messagePlaceholder.id)
             throw error
+        } finally {
+            await this.persistContextTokens(conversationId)
         }
     }
 
@@ -184,6 +216,12 @@ export class App {
         await this.chatHistory.updateMessage(messageId, [])
 
         const callback = async (event: StreamedLLMEvent) => {
+            this.trackContext(conversationId, event)
+            if (event.type === 'begin_llm_generation') return
+            if (event.type === 'rename_conversation') {
+                await this.renameConversation(conversationId, event.name)
+                return
+            }
             if (event.type === 'tool_permission_request') {
                 await this.chatHistory.showToolPermissionRequest(messageId, event)
                 return
@@ -200,6 +238,8 @@ export class App {
         } catch (error) {
             await this.chatHistory.updateMessage(messageId, previous)
             throw error
+        } finally {
+            await this.persistContextTokens(conversationId)
         }
     }
 
@@ -226,6 +266,44 @@ export class App {
 
     async getPersona(id: Uuid): Promise<Persona | null> {
         return await this.personaCache.getPersona(id)
+    }
+
+    get contextUsage(): ContextUsage & { max: number } {
+        const usage = (this._conversationId && this.contextTokens.get(this._conversationId)) || {
+            used: 0,
+            promptTokens: 0,
+            totalTokens: 0,
+        }
+        return { ...usage, max: this.contextWindow }
+    }
+
+    private async persistContextTokens(conversationId: Uuid): Promise<void> {
+        const tokens = this.contextTokens.get(conversationId)
+        if (tokens === undefined) return
+
+        try {
+            const conversation = await fetchConversation(conversationId)
+            await updateConversationMetadata(conversationId, { ...conversation.metadata, [CONTEXT_TOKENS_KEY]: tokens })
+        } catch (error) {
+            console.error('Failed to save context token count:', error)
+        }
+    }
+
+    // Context usage is the post-truncation prompt size plus tokens streamed since.
+    private trackContext(conversationId: Uuid, event: StreamedLLMEvent): void {
+        if (event.type === 'begin_llm_generation') {
+            this.contextTokens.set(conversationId, {
+                used: event.truncatedTokens,
+                promptTokens: event.promptTokens,
+                totalTokens: event.totalTokens,
+            })
+        } else if (event.type !== 'tool_permission_request' && event.type !== 'rename_conversation') {
+            const current = this.contextTokens.get(conversationId) ?? { used: 0, promptTokens: 0, totalTokens: 0 }
+            this.contextTokens.set(conversationId, { ...current, used: current.used + event.tokens })
+        } else {
+            return
+        }
+        if (conversationId === this._conversationId) this.chatHistory.refreshInputState()
     }
 
     get userId(): Uuid | null {

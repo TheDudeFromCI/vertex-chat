@@ -52,6 +52,14 @@ export async function generateMessageContent(
     return generated
 }
 
+export async function fetchContextWindow(): Promise<number> {
+    const response = await fetch('/api/llm/context-window')
+    if (!response.ok) {
+        throw new Error('Failed to fetch context window size')
+    }
+    return (await response.json())['contextTokens'] as number
+}
+
 export async function submitToolPermissionDecision(requestId: string, allowed: boolean): Promise<void> {
     const response = await fetch('/api/llm/tool-permission', {
         method: 'POST',

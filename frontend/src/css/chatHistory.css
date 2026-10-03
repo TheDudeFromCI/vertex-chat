@@ -530,3 +530,43 @@
     filter: brightness(0) saturate(100%) invert(29%) sepia(98%) saturate(2450%) hue-rotate(339deg) brightness(102%)
         contrast(100%);
 }
+
+.context-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 40px;
+    flex-shrink: 0;
+    color: #8a8f98;
+}
+
+.context-indicator.context-warning {
+    color: #e6c229;
+}
+
+.context-indicator.context-critical {
+    color: #e04848;
+}
+
+.context-indicator svg {
+    width: 24px;
+    height: 24px;
+}
+
+.context-indicator circle {
+    fill: none;
+    stroke-width: 3;
+}
+
+.context-indicator-track {
+    stroke: rgba(255, 255, 255, 0.12);
+}
+
+.context-indicator-progress {
+    stroke: currentColor;
+    stroke-linecap: round;
+    transition:
+        stroke-dashoffset 0.2s ease,
+        stroke 0.2s ease;
+}

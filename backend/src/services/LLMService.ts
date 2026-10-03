@@ -21,7 +21,15 @@ export interface Tool {
     description: string
     params: ToolParam[]
     needsPermission: boolean
-    execute: (args: Record<string, unknown>, context: ToolExecutionContext) => Promise<string>
+    execute: (
+        args: Record<string, unknown>,
+        context: ToolExecutionContext,
+        callbacks?: ToolCallbacks,
+    ) => Promise<string>
+}
+
+export interface ToolCallbacks {
+    renameConversation: (name: string) => void
 }
 
 export interface ToolParam {
@@ -93,7 +101,12 @@ export class LLMService {
             args: string
         }
 
-        const appendFragment = (fragment: string, type: MessageContentBlockType) => {
+        // Model stream chunks are one token each; locally produced text is estimated.
+        const appendFragment = (
+            fragment: string,
+            type: MessageContentBlockType,
+            tokens: number = Math.ceil(fragment.length / 4),
+        ) => {
             // Each tool response is a self-contained block (merging would corrupt JSON).
             if (!type.startsWith('tool_response') && response.at(-1)?.type === type) {
                 const block = response.at(-1)!
@@ -109,6 +122,7 @@ export class LLMService {
                 callback({
                     type: type,
                     delta: fragment,
+                    tokens,
                 })
             }
         }
@@ -123,7 +137,7 @@ export class LLMService {
 
             let stream: Response
             try {
-                stream = await this.openStream(request, signal)
+                stream = await this.openStream(request, callback, signal)
             } catch (error) {
                 if (isAbortError(error) || response.length === 0) throw error
                 console.error('Unrecoverable provider error, returning partial response:', error)
@@ -176,10 +190,10 @@ export class LLMService {
                     }
 
                     const thinkingFragment = data['choices'][0]['delta']['reasoning_content'] || ''
-                    if (thinkingFragment) appendFragment(thinkingFragment, 'thinking')
+                    if (thinkingFragment) appendFragment(thinkingFragment, 'thinking', 1)
 
                     const fragment = data['choices'][0]['delta']['content'] || ''
-                    if (fragment) appendFragment(fragment, 'text')
+                    if (fragment) appendFragment(fragment, 'text', 1)
 
                     const tools = data['choices'][0]['delta']['tool_calls'] || []
                     for (const tool of tools) {
@@ -242,10 +256,15 @@ export class LLMService {
                                         }
                                     }
 
+                                    const toolCallbacks: ToolCallbacks = {
+                                        renameConversation: (name) => callback?.({ type: 'rename_conversation', name }),
+                                    }
+
                                     const toolResult = await this.executeToolCall(
                                         toolName,
                                         argsJson,
                                         request.toolContext,
+                                        toolCallbacks,
                                     )
 
                                     const parsedToolResult = this.parseStructuredToolResult(toolResult)
@@ -362,7 +381,11 @@ export class LLMService {
         return response
     }
 
-    private async openStream(request: ChatCompletionRequest, signal?: AbortSignal): Promise<Response> {
+    private async openStream(
+        request: ChatCompletionRequest,
+        callback?: ChatStreamCallback,
+        signal?: AbortSignal,
+    ): Promise<Response> {
         let lastError: unknown
 
         for (let attempt = 0; attempt <= MAX_REQUEST_RETRIES; attempt++) {
@@ -372,8 +395,11 @@ export class LLMService {
 
             try {
                 let optimizedRequest = request
+                let counts: { totalTokens: number; truncatedTokens: number } | null = null
                 try {
-                    optimizedRequest = await this.optimizeTokenCount(request, signal)
+                    const optimized = await this.optimizeTokenCount(request, signal)
+                    optimizedRequest = optimized.request
+                    counts = optimized
                 } catch (error) {
                     if (isAbortError(error)) throw error
                     console.error('Token optimization failed, sending request unoptimized:', error)
@@ -382,7 +408,13 @@ export class LLMService {
                 const preparedRequest = await this.prepareRequest(optimizedRequest)
                 const stream = await this.connection.createChatCompletion(preparedRequest, signal)
 
-                if (stream.ok && stream.body) return stream
+                if (stream.ok && stream.body) {
+                    if (counts && callback) {
+                        const promptTokens = await this.countPromptTokens(request, signal).catch(() => 0)
+                        callback({ type: 'begin_llm_generation', promptTokens, ...counts })
+                    }
+                    return stream
+                }
 
                 const errorResponse = await stream.json().catch(() => null)
                 lastError = new Error(
@@ -402,7 +434,7 @@ export class LLMService {
     private async optimizeTokenCount(
         request: ChatCompletionRequest,
         signal?: AbortSignal,
-    ): Promise<ChatCompletionRequest> {
+    ): Promise<{ request: ChatCompletionRequest; totalTokens: number; truncatedTokens: number }> {
         const budget = this.maxTokens - this.maxOutputTokens
 
         if (budget <= 0) {
@@ -410,7 +442,8 @@ export class LLMService {
         }
 
         if (request.messages.length === 0) {
-            return request
+            const promptTokens = await this.countPromptTokens(request, signal)
+            return { request, totalTokens: promptTokens, truncatedTokens: promptTokens }
         }
 
         const countTokensForSuffix = async (suffixLength: number): Promise<number> => {
@@ -428,11 +461,12 @@ export class LLMService {
         try {
             const totalTokens = await countTokensForSuffix(request.messages.length)
             if (totalTokens <= budget) {
-                return request
+                return { request, totalTokens, truncatedTokens: totalTokens }
             }
 
             // Invariant: low fits, high does not fit.
             let low = 0
+            let lowTokens = await this.countPromptTokens(request, signal)
             let high = request.messages.length
 
             while (high - low > 1) {
@@ -441,15 +475,20 @@ export class LLMService {
 
                 if (midTokens <= budget) {
                     low = mid
+                    lowTokens = midTokens
                 } else {
                     high = mid
                 }
             }
 
             return {
-                prompt: request.prompt,
-                messages: request.messages.slice(request.messages.length - low),
-                toolContext: request.toolContext,
+                request: {
+                    prompt: request.prompt,
+                    messages: request.messages.slice(request.messages.length - low),
+                    toolContext: request.toolContext,
+                },
+                totalTokens,
+                truncatedTokens: lowTokens,
             }
         } catch (error) {
             if (isAbortError(error)) {
@@ -463,6 +502,15 @@ export class LLMService {
 
     private async fetchModels(): Promise<string[]> {
         return await this.connection.listModels()
+    }
+
+    get contextBudget(): number {
+        return this.maxTokens - this.maxOutputTokens
+    }
+
+    private async countPromptTokens(request: ChatCompletionRequest, signal?: AbortSignal): Promise<number> {
+        const preparedRequest = await this.prepareRequest({ ...request, messages: [] })
+        return await this.connection.countInputTokens(preparedRequest, signal)
     }
 
     private async countTokens(request: ChatCompletionRequest, signal?: AbortSignal): Promise<number> {
@@ -623,13 +671,14 @@ export class LLMService {
         toolName: string,
         args: Record<string, unknown>,
         context: ToolExecutionContext,
+        callbacks: ToolCallbacks,
     ): Promise<string> {
         const tool = this.tools.find((t) => t.name === toolName)
         if (!tool) {
             throw new Error(`Tool "${toolName}" not found.`)
         }
 
-        return await tool.execute(args, context)
+        return await tool.execute(args, context, callbacks)
     }
 
     private async requestPermission(request: ToolPermissionRequest, signal?: AbortSignal): Promise<boolean> {

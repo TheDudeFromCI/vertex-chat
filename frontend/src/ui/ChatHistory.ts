@@ -12,6 +12,7 @@ import type {
 import type { App } from '../App.js'
 import { submitToolPermissionDecision } from '../api/ChatGenerationAPI'
 import { fetchConversation } from '../api/ConversationsAPI'
+import { ContextIndicator } from './ContextIndicator.js'
 
 import MarkdownIt from 'markdown-it'
 
@@ -41,6 +42,7 @@ export class InputBox {
     private generateIcon: HTMLImageElement | null = null
     private attachments: ChatAttachment[] = []
     private attachmentPreview: HTMLDivElement | null = null
+    private readonly contextIndicator = new ContextIndicator()
 
     constructor(app: App) {
         this.app = app
@@ -194,7 +196,7 @@ export class InputBox {
             }
         })
         div.appendChild(generateButton)
-
+        div.appendChild(this.contextIndicator.build())
         const preview = document.createElement('div')
         preview.classList.add('chat-input-attachments')
         this.attachmentPreview = preview
@@ -323,6 +325,9 @@ export class InputBox {
     }
 
     refresh(): void {
+        const usage = this.app.contextUsage
+        this.contextIndicator.update(usage, usage.max)
+
         const generating = this.isSelectedGenerating()
         if (this.input) {
             this.input.setAttribute('contenteditable', generating ? 'false' : 'true')

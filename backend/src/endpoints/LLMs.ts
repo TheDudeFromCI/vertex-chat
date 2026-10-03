@@ -130,6 +130,10 @@ export default async function register(
         }
     })
 
+    app.get('/api/llm/context-window', (_req: Request, res: Response) => {
+        res.json({ contextTokens: llmService.contextBudget })
+    })
+
     app.post('/api/llm/tool-permission', (req: Request, res: Response) => {
         const requestId = req.body.requestId as string | undefined
         const allowed = req.body.allowed as boolean | undefined
