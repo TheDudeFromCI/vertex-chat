@@ -139,6 +139,95 @@
     width: 100%;
 }
 
+.participants-editor-field {
+    position: relative;
+    width: 100%;
+}
+
+.participants-editor-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-bottom: 1px solid #314154;
+}
+
+.participants-editor-tab {
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: none;
+    color: #9fb3c8;
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+.participants-editor-tab:hover {
+    color: #e2e8f0;
+}
+
+.participants-editor-tab.active {
+    color: #e2e8f0;
+    border-color: #314154;
+    background-color: #0f1522;
+}
+
+.participants-editor-tab-panels [hidden] {
+    display: none;
+}
+
+.participants-editor-fullscreen-toggle {
+    position: absolute;
+    top: 6px;
+    right: 14px;
+    width: 26px;
+    height: 26px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #314154;
+    border-radius: 6px;
+    background-color: rgba(24, 34, 52, 0.85);
+    cursor: pointer;
+    opacity: 0.7;
+    z-index: 1;
+}
+
+.participants-editor-fullscreen-toggle:hover {
+    opacity: 1;
+}
+
+.participants-editor-fullscreen-toggle img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: invert(1);
+}
+
+.participants-editor-field.fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    padding: 24px;
+    background-color: #0b111b;
+}
+
+.participants-editor-field.fullscreen .participants-editor-prompt-container {
+    height: 100%;
+}
+
+.participants-editor-field.fullscreen .participants-editor-textarea,
+.participants-editor-field.fullscreen .participants-editor-markdown {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+}
+
+.participants-editor-field.fullscreen .participants-editor-fullscreen-toggle {
+    top: 32px;
+    right: 40px;
+}
+
 .participants-editor-markdown {
     height: 260px;
     min-height: 260px;

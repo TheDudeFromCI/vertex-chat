@@ -6,6 +6,7 @@ import { default as Database } from 'better-sqlite3'
 
 import { ConversationStore } from './services/ConversationStore.js'
 import { PersonaStore } from './services/PersonaStore.js'
+import { CoreFileStore } from './services/CoreFileStore.js'
 import { publicHtml, middleware } from './endpoints/Standard.js'
 import registerLLMEndpoint from './endpoints/LLMs.js'
 import registerPersonasEndpoint from './endpoints/Personas.js'
@@ -25,10 +26,11 @@ db.pragma('journal_mode = WAL')
 
 const conversationStore = new ConversationStore(db)
 const personaStore = new PersonaStore(db)
+const coreFileStore = new CoreFileStore(db, personaStore)
 
 middleware(app)
-await registerLLMEndpoint(app, conversationStore, personaStore)
-registerPersonasEndpoint(app, personaStore)
+await registerLLMEndpoint(app, conversationStore, personaStore, coreFileStore)
+registerPersonasEndpoint(app, personaStore, coreFileStore)
 registerConversationsEndpoint(app, conversationStore)
 registerMessagesEndpoint(app, conversationStore)
 publicHtml(app, FRONTEND_DIST)

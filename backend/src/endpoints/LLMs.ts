@@ -7,11 +7,14 @@ import { buildConversationTools } from '../tools/Conversation.js'
 import { buildSubagentTool } from '../tools/Subagent.js'
 import type { ConversationStore } from '../services/ConversationStore.js'
 import type { PersonaStore } from '../services/PersonaStore.js'
+import type { CoreFileStore } from '../services/CoreFileStore.js'
+import { buildCoreFileTools } from '../tools/CoreFiles.js'
 
 export default async function register(
     app: Express,
     conversationStore: ConversationStore,
     personaStore: PersonaStore,
+    coreFileStore: CoreFileStore,
 ): Promise<void> {
     const llmService = await LLMService.initClient({
         apiKey: process.env['OPENAI_API_KEY'] ?? 'no-key',
@@ -76,6 +79,12 @@ export default async function register(
     llmService.registerTool(conversationTools.conversationName)
     llmService.registerTool(conversationTools.participants)
     llmService.registerTool(conversationTools.avatar)
+
+    const coreFileTools = buildCoreFileTools(coreFileStore)
+    llmService.registerTool(coreFileTools.listCoreFiles)
+    llmService.registerTool(coreFileTools.readCoreFile)
+    llmService.registerTool(coreFileTools.writeCoreFile)
+    llmService.registerTool(coreFileTools.appendCoreFile)
 
     const subagentTool = buildSubagentTool(llmService, conversationStore, personaStore)
     llmService.registerTool(subagentTool)

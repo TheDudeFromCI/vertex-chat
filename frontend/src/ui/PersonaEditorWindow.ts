@@ -2,11 +2,22 @@ import '../css/personaEditorWindow.css'
 
 import type { Persona, Uuid } from 'vertex-common'
 import { updateConversationParticipants } from '../api/ConversationsAPI.js'
-import { createPersona, deletePersona, setPersonaAvatar, updatePersona } from '../api/PersonasAPI.js'
+import {
+    CORE_FILE_NAMES,
+    createPersona,
+    deletePersona,
+    fetchCoreFiles,
+    setPersonaAvatar,
+    updateCoreFile,
+    updatePersona,
+    type CoreFileName,
+} from '../api/PersonasAPI.js'
 import type { App } from '../App.js'
 import MarkdownIt from 'markdown-it'
 
 const SAVE_SYMBOL = new URL('../../icons/save.png', import.meta.url).href
+const EXPAND_SYMBOL = new URL('../../icons/expand.png', import.meta.url).href
+const SHRINK_SYMBOL = new URL('../../icons/shrink.png', import.meta.url).href
 const md = new MarkdownIt({ typographer: true })
 
 interface PersonaEditorWindowDependencies {
@@ -33,6 +44,8 @@ export class PersonaEditorWindow {
     private autosaveTimer: number | null = null
     private autosaveState: 'saved' | 'saving' | 'error' = 'saved'
     private autosaveRevision = 0
+    private coreFileTimers = new Map<string, number>()
+    private coreFileRevision = 0
 
     constructor(dependencies: PersonaEditorWindowDependencies) {
         this.app = dependencies.app
@@ -130,6 +143,9 @@ export class PersonaEditorWindow {
             clearTimeout(this.autosaveTimer)
             this.autosaveTimer = null
         }
+        for (const timer of this.coreFileTimers.values()) clearTimeout(timer)
+        this.coreFileTimers.clear()
+        this.coreFileRevision++
 
         if (this.modalOverlay) {
             this.modalOverlay.remove()
@@ -215,61 +231,45 @@ export class PersonaEditorWindow {
         })
         this.modalEditor.appendChild(nameInput)
 
-        const promptLabel = document.createElement('label')
-        promptLabel.classList.add('participants-editor-label')
-        promptLabel.textContent = 'Prompt'
-        this.modalEditor.appendChild(promptLabel)
+        const tabBar = document.createElement('div')
+        tabBar.classList.add('participants-editor-tabs')
+        tabBar.setAttribute('role', 'tablist')
+        this.modalEditor.appendChild(tabBar)
 
-        const promptContainer = document.createElement('div')
-        promptContainer.classList.add('participants-editor-prompt-container')
-        this.modalEditor.appendChild(promptContainer)
+        const tabPanels = document.createElement('div')
+        tabPanels.classList.add('participants-editor-tab-panels')
+        this.modalEditor.appendChild(tabPanels)
 
-        const renderPromptPreview = (): void => {
-            promptContainer.replaceChildren()
-
-            const promptPreview = document.createElement('div')
-            promptPreview.classList.add('participants-editor-markdown')
-            promptPreview.tabIndex = 0
-            promptPreview.setAttribute('role', 'button')
-            promptPreview.setAttribute('aria-label', 'Edit persona prompt')
-            promptPreview.title = 'Click to edit prompt'
-            promptPreview.innerHTML = md.render(selected.prompt)
-            promptPreview.addEventListener('click', () => {
-                renderPromptEditor()
-            })
-            promptPreview.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    renderPromptEditor()
+        const tabs: { button: HTMLButtonElement; panel: HTMLElement }[] = []
+        const addTab = (label: string, panel: HTMLElement): void => {
+            const button = document.createElement('button')
+            button.type = 'button'
+            button.classList.add('participants-editor-tab')
+            button.setAttribute('role', 'tab')
+            button.textContent = label
+            button.addEventListener('click', () => {
+                for (const tab of tabs) {
+                    const active = tab.button === button
+                    tab.button.classList.toggle('active', active)
+                    tab.panel.hidden = !active
                 }
             })
 
-            promptContainer.appendChild(promptPreview)
+            const active = tabs.length === 0
+            button.classList.toggle('active', active)
+            panel.hidden = !active
+
+            tabs.push({ button, panel })
+            tabBar.appendChild(button)
+            tabPanels.appendChild(panel)
         }
 
-        const renderPromptEditor = (): void => {
-            promptContainer.replaceChildren()
-
-            const promptInput = document.createElement('textarea')
-            promptInput.value = selected.prompt
-            promptInput.classList.add('participants-editor-textarea')
-            promptInput.rows = 8
-            promptInput.addEventListener('input', () => {
-                selected.prompt = promptInput.value
-                this.setAutosaveState('saving')
-                this.scheduleAutosave(selected.id)
-            })
-            promptInput.addEventListener('blur', () => {
-                selected.prompt = promptInput.value
-                renderPromptPreview()
-            })
-
-            promptContainer.appendChild(promptInput)
-            promptInput.focus()
-            promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length)
-        }
-
-        renderPromptPreview()
+        const promptField = this.buildMarkdownField('Edit persona prompt', selected.prompt, (value) => {
+            selected.prompt = value
+            this.setAutosaveState('saving')
+            this.scheduleAutosave(selected.id)
+        })
+        void this.loadCoreFiles(selected, addTab, promptField.setValue)
 
         const metadata = document.createElement('div')
         metadata.classList.add('participants-editor-metadata')
@@ -298,6 +298,169 @@ export class PersonaEditorWindow {
         footer.appendChild(saveIndicator)
         this.modalSaveIndicator = saveIndicator
         this.renderSaveIndicator()
+    }
+
+    private buildMarkdownField(
+        ariaLabel: string,
+        initialValue: string,
+        onInput: (value: string) => void,
+    ): { element: HTMLDivElement; setValue: (value: string) => void } {
+        let value = initialValue
+        let activeInput: HTMLTextAreaElement | null = null
+
+        const field = document.createElement('div')
+        field.classList.add('participants-editor-field')
+
+        const content = document.createElement('div')
+        content.classList.add('participants-editor-prompt-container')
+        field.appendChild(content)
+
+        const toggle = document.createElement('button')
+        toggle.type = 'button'
+        toggle.classList.add('participants-editor-fullscreen-toggle')
+        const toggleIcon = document.createElement('img')
+        toggle.appendChild(toggleIcon)
+        field.appendChild(toggle)
+
+        const updateToggle = (): void => {
+            const fullscreen = field.classList.contains('fullscreen')
+            toggleIcon.src = fullscreen ? SHRINK_SYMBOL : EXPAND_SYMBOL
+            toggleIcon.alt = fullscreen ? 'Exit full screen' : 'Full screen'
+            toggle.title = toggleIcon.alt
+        }
+        updateToggle()
+
+        // Keeps the textarea from blurring (and collapsing to preview) when the button is pressed.
+        toggle.addEventListener('mousedown', (event) => event.preventDefault())
+        toggle.addEventListener('click', () => {
+            field.classList.toggle('fullscreen')
+            updateToggle()
+        })
+        field.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && field.classList.contains('fullscreen')) {
+                event.stopPropagation()
+                field.classList.remove('fullscreen')
+                updateToggle()
+            }
+        })
+
+        const renderPreview = (): void => {
+            activeInput = null
+            content.replaceChildren()
+
+            const preview = document.createElement('div')
+            preview.classList.add('participants-editor-markdown')
+            preview.tabIndex = 0
+            preview.setAttribute('role', 'button')
+            preview.setAttribute('aria-label', ariaLabel)
+            preview.title = 'Click to edit'
+            preview.innerHTML = md.render(value)
+            preview.addEventListener('click', renderEditor)
+            preview.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    renderEditor()
+                }
+            })
+            content.appendChild(preview)
+        }
+
+        function renderEditor(): void {
+            content.replaceChildren()
+
+            const input = document.createElement('textarea')
+            input.value = value
+            input.classList.add('participants-editor-textarea')
+            input.rows = 8
+            input.addEventListener('input', () => {
+                value = input.value
+                onInput(value)
+            })
+            input.addEventListener('blur', () => {
+                value = input.value
+                renderPreview()
+            })
+
+            activeInput = input
+            content.appendChild(input)
+            input.focus()
+            input.setSelectionRange(input.value.length, input.value.length)
+        }
+
+        renderPreview()
+
+        return {
+            element: field,
+            setValue: (next) => {
+                value = next
+                if (activeInput) activeInput.value = next
+                else renderPreview()
+            },
+        }
+    }
+
+    private async loadCoreFiles(
+        persona: Persona,
+        addTab: (label: string, panel: HTMLElement) => void,
+        setPromptValue: (value: string) => void,
+    ): Promise<void> {
+        let files: Record<CoreFileName, string>
+        try {
+            files = await fetchCoreFiles(persona.id)
+        } catch (error) {
+            console.error('Failed to load core files:', error)
+            this.setStatus('Failed to load core files.')
+            return
+        }
+
+        for (const name of CORE_FILE_NAMES) {
+            const field = this.buildMarkdownField(`Edit ${name}`, files[name], (value) => {
+                this.scheduleCoreFileSave(persona, name, value, setPromptValue)
+            })
+            addTab(name, field.element)
+        }
+    }
+
+    private scheduleCoreFileSave(
+        persona: Persona,
+        name: CoreFileName,
+        content: string,
+        setPromptValue: (value: string) => void,
+    ): void {
+        const key = `${persona.id}:${name}`
+        const existing = this.coreFileTimers.get(key)
+        if (existing !== undefined) clearTimeout(existing)
+
+        const revision = ++this.coreFileRevision
+        this.setAutosaveState('saving')
+
+        const timer = window.setTimeout(async () => {
+            this.coreFileTimers.delete(key)
+            try {
+                const updated = await updateCoreFile(persona.id, name, content)
+                if (revision !== this.coreFileRevision) {
+                    return
+                }
+
+                if (updated.prompt !== persona.prompt) {
+                    persona.prompt = updated.prompt
+                    setPromptValue(updated.prompt)
+                }
+                persona.updated = updated.updated
+
+                await this.app.reloadPersonas()
+                await this.onParticipantsChanged()
+                this.setAutosaveState('saved')
+            } catch (error) {
+                if (revision !== this.coreFileRevision) {
+                    return
+                }
+                console.error('Failed to save core file:', error)
+                this.setAutosaveState('error')
+                this.setStatus('Autosave failed. Try again.')
+            }
+        }, 600)
+        this.coreFileTimers.set(key, timer)
     }
 
     private scheduleAutosave(personaId: Uuid): void {
