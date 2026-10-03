@@ -139,8 +139,17 @@ export class App {
         return this.generations.enqueue(conversationId, agentId)
     }
 
+    redoMessage(conversationId: Uuid, agentId: Uuid, messageId: Uuid): Promise<void> {
+        return this.generations.enqueue(conversationId, agentId, messageId)
+    }
+
     private async runGeneration(task: GenerationTask): Promise<void> {
-        const { conversationId, agentId } = task
+        const { conversationId, agentId, redoMessageId } = task
+        if (redoMessageId) {
+            await this.runRedo(task, redoMessageId)
+            return
+        }
+
         const messagePlaceholder = await this.sendMessage(conversationId, agentId, [], undefined, {
             suppressAutomation: true,
         })
@@ -162,6 +171,34 @@ export class App {
             this.enqueueAutoResponse(conversationId, agentId)
         } catch (error) {
             await this.deleteMessage(messagePlaceholder.id)
+            throw error
+        }
+    }
+
+    private async runRedo(task: GenerationTask, messageId: Uuid): Promise<void> {
+        const { conversationId, agentId } = task
+        const previous = this.chatHistory.getMessageContent(messageId)
+        if (!previous) return
+
+        const request = await this.chatManager.generateChatCompletionRequest(conversationId, agentId, messageId)
+        await this.chatHistory.updateMessage(messageId, [])
+
+        const callback = async (event: StreamedLLMEvent) => {
+            if (event.type === 'tool_permission_request') {
+                await this.chatHistory.showToolPermissionRequest(messageId, event)
+                return
+            }
+
+            await this.chatHistory.streamMessageContent(messageId, event)
+        }
+
+        try {
+            const generated = await generateMessageContent(request, callback, task.controller.signal)
+            await updateMessage(messageId, generated)
+            await this.chatHistory.updateMessage(messageId, generated)
+            this.enqueueAutoResponse(conversationId, agentId)
+        } catch (error) {
+            await this.chatHistory.updateMessage(messageId, previous)
             throw error
         }
     }

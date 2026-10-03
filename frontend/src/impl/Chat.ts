@@ -40,7 +40,11 @@ export class ChatManager {
         return null
     }
 
-    async generateChatCompletionRequest(conversationId: Uuid, agentId: Uuid): Promise<ChatCompletionRequest> {
+    async generateChatCompletionRequest(
+        conversationId: Uuid,
+        agentId: Uuid,
+        excludeMessageId?: Uuid,
+    ): Promise<ChatCompletionRequest> {
         const conversation = await fetchConversation(conversationId)
         const agent = await this.app.getPersona(agentId)
         const messages: ChatCompletionMessage[] = []
@@ -56,6 +60,8 @@ export class ChatManager {
         }
 
         for (const msg of conversation.messages) {
+            if (msg.id === excludeMessageId) continue
+
             if (msg.sender === agentId) {
                 let text = ''
                 let thinking = ''

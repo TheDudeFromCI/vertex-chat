@@ -17,6 +17,7 @@ import MarkdownIt from 'markdown-it'
 
 const DEFAULT_PROFILE_PICTURE = new URL('../../icons/default-pfp.png', import.meta.url).href
 const DELETE_SYMBOL = new URL('../../icons/delete.png', import.meta.url).href
+const REDO_SYMBOL = new URL('../../icons/redo.png', import.meta.url).href
 const SEND_SYMBOL = new URL('../../icons/send.png', import.meta.url).href
 const GENERATE_SYMBOL = new URL('../../icons/generate.png', import.meta.url).href
 const CLOSE_SYMBOL = new URL('../../icons/close.png', import.meta.url).href
@@ -346,12 +347,16 @@ export class InputBox {
 
 export class ChatMessage {
     private readonly onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>
+    private readonly onRedo: (message: ChatMessage) => Promise<void>
+    private redoButton: HTMLButtonElement | null = null
+    private redoVisible = false
     private contentBlockUpdaters: ((newContent: string) => void)[] = []
     private messageContent: HTMLDivElement | null = null
     private toolCallSections: HTMLDetailsElement[] = []
     private permissionRequestRows: Map<string, HTMLDivElement> = new Map()
 
     public readonly id: Uuid
+    public readonly senderId: Uuid
     public content: MessageContent
     public leftAligned: boolean = true
     public profilePictureUrl: string
@@ -360,13 +365,17 @@ export class ChatMessage {
 
     constructor(
         id: Uuid,
+        senderId: Uuid,
         content: MessageContent,
         profilePictureUrl: string,
         personaName: string,
         leftAligned: boolean = true,
         onDelete: (messageId: Uuid, skipConfirmation: boolean) => Promise<void>,
+        onRedo: (message: ChatMessage) => Promise<void>,
     ) {
         this.id = id
+        this.senderId = senderId
+        this.onRedo = onRedo
         this.content = content
         this.profilePictureUrl = profilePictureUrl
         this.personaName = personaName
@@ -425,6 +434,25 @@ export class ChatMessage {
         deleteIcon.src = DELETE_SYMBOL
         deleteIcon.alt = ''
         deleteButton.appendChild(deleteIcon)
+
+        const redoButton = document.createElement('button')
+        redoButton.type = 'button'
+        redoButton.classList.add('chat-message-delete-button')
+        redoButton.setAttribute('aria-label', 'Regenerate message')
+        redoButton.title = 'Regenerate message'
+        redoButton.hidden = !this.redoVisible
+        redoButton.addEventListener('click', async (event) => {
+            event.stopPropagation()
+            await this.onRedo(this)
+        })
+
+        const redoIcon = document.createElement('img')
+        redoIcon.src = REDO_SYMBOL
+        redoIcon.alt = ''
+        redoButton.appendChild(redoIcon)
+        this.redoButton = redoButton
+
+        actions.appendChild(redoButton)
         actions.appendChild(deleteButton)
         bubble.appendChild(actions)
 
@@ -439,6 +467,11 @@ export class ChatMessage {
         }
 
         return this.element
+    }
+
+    setRedoVisible(visible: boolean): void {
+        this.redoVisible = visible
+        if (this.redoButton) this.redoButton.hidden = !visible
     }
 
     appendContentBlock(block: MessageContentBlock, buildOnly = false, expandDetails = false): void {
@@ -774,6 +807,7 @@ export class ChatHistory {
         }
 
         this.views.set(conversation.id, view)
+        this.updateRedoVisibility(view)
     }
 
     unloadConversation(conversationId: Uuid): void {
@@ -812,12 +846,41 @@ export class ChatHistory {
         const persona = await this.app.getPersona(message.sender)
         return new ChatMessage(
             message.id,
+            message.sender,
             message.content,
             persona?.avatarUrl ?? DEFAULT_PROFILE_PICTURE,
             persona?.name ?? '[Deleted User]',
             message.sender !== this.app.userId,
             this.confirmAndDeleteMessage.bind(this),
+            this.redoMessage.bind(this),
         )
+    }
+
+    private updateRedoVisibility(view: ConversationView): void {
+        view.messages.forEach((msg, index) => msg.setRedoVisible(index === view.messages.length - 1))
+    }
+
+    getMessageContent(messageId: Uuid): MessageContent | null {
+        const found = this.findMessage(messageId)
+        return found ? structuredClone(found.message.content) : null
+    }
+
+    private async redoMessage(message: ChatMessage): Promise<void> {
+        const conversationId = this.app.conversationId
+        if (!conversationId) return
+
+        if (this.app.isGenerating(conversationId)) {
+            alert('Wait for the current generation to finish.')
+            return
+        }
+
+        try {
+            await this.app.redoMessage(conversationId, message.senderId, message.id)
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return
+            console.error('Failed to regenerate message:', error)
+            alert('Failed to regenerate message. Please try again.')
+        }
     }
 
     private findMessage(messageId: Uuid): { view: ConversationView; message: ChatMessage } | null {
@@ -836,6 +899,7 @@ export class ChatHistory {
         const shouldAutoScroll = this.isNearBottom(view.container)
         view.messages.push(chatMessage)
         view.container.appendChild(chatMessage.build())
+        this.updateRedoVisibility(view)
 
         if (shouldAutoScroll) {
             this.scrollToBottom(view.container)
@@ -892,6 +956,7 @@ export class ChatHistory {
 
         found.view.messages = found.view.messages.filter((msg) => msg !== found.message)
         found.message.element?.remove()
+        this.updateRedoVisibility(found.view)
     }
 
     private async confirmAndDeleteMessage(messageId: Uuid, skipConfirmation: boolean): Promise<void> {

@@ -3,6 +3,7 @@ import type { Uuid } from 'vertex-common'
 export interface GenerationTask {
     readonly conversationId: Uuid
     readonly agentId: Uuid
+    readonly redoMessageId?: Uuid
     readonly controller: AbortController
     status: 'queued' | 'running'
     resolve: () => void
@@ -22,11 +23,12 @@ export class GenerationManager {
         this.runner = runner
     }
 
-    enqueue(conversationId: Uuid, agentId: Uuid): Promise<void> {
+    enqueue(conversationId: Uuid, agentId: Uuid, redoMessageId?: Uuid): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             this.queue.push({
                 conversationId,
                 agentId,
+                redoMessageId,
                 controller: new AbortController(),
                 status: 'queued',
                 resolve,
