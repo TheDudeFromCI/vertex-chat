@@ -55,7 +55,7 @@ export class ConversationStore {
     }
 
     listWorkspaces(): ReadonlyArray<Readonly<Workspace>> {
-        const getConversations = this.database.prepare('SELECT * FROM conversations WHERE workspaceId = ?')
+        const getConversations = this.database.prepare('SELECT * FROM conversations WHERE workspaceId = ? ORDER BY updatedAt DESC')
         const rows = this.database.prepare('SELECT * FROM workspaces').all() as WorkspaceRow[]
 
         let workspaces = []
