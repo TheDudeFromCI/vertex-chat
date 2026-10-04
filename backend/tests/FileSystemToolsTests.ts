@@ -62,7 +62,9 @@ test('file tools should list, create, read, update, and delete files within the 
 
     const readResult = JSON.parse(await tools.readFile.execute({ path: 'notes.txt' }, context))
     assert.deepStrictEqual(readResult, {
+        type: 'text',
         path: filePath,
+        name: 'notes.txt',
         content: 'hello world',
     })
 

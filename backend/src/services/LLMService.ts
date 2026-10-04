@@ -43,6 +43,15 @@ const isAbortError = (error: unknown): boolean => {
     return error instanceof DOMException && error.name === 'AbortError'
 }
 
+const isValidJson = (text: string): boolean => {
+    try {
+        JSON.parse(text)
+        return true
+    } catch {
+        return false
+    }
+}
+
 export class LLMService {
     private readonly model: string
     private readonly connection: LLMConnection
@@ -143,6 +152,7 @@ export class LLMService {
             let buffer = ''
 
             let toolBuffers: ToolBuffer[] = []
+            const turnStart = response.length
 
             while (true) {
                 if (signal?.aborted) {
@@ -213,12 +223,31 @@ export class LLMService {
                             continue
                         }
 
-                        for (const toolBuffer of completedCalls) {
+                        const callIds = completedCalls.map((c) => `${c.name}_${randomUUID()}`)
+                        const turnBlocks = response.slice(turnStart)
+                        const joinBlocks = (type: MessageContentBlockType) =>
+                            turnBlocks
+                                .filter((b) => b.type === type)
+                                .map((b) => b.content)
+                                .join('')
+                        // The tool messages below are only valid after the assistant turn that requested them.
+                        request.messages.push({
+                            role: 'assistant',
+                            content: joinBlocks('text'),
+                            thinking: joinBlocks('thinking') || null,
+                            tool_calls: completedCalls.map((c, i) => ({
+                                id: callIds[i]!,
+                                type: 'function',
+                                function: { name: c.name, arguments: isValidJson(c.args) ? c.args : '{}' },
+                            })),
+                        })
+
+                        for (const [callIndex, toolBuffer] of completedCalls.entries()) {
                             try {
                                 const argsJson = JSON.parse(toolBuffer.args)
                                 parseFailures = 0
                                 const toolName = toolBuffer.name
-                                const toolCallId = `${toolName}_${randomUUID()}`
+                                const toolCallId = callIds[callIndex]!
                                 appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
 
                                 try {
@@ -345,7 +374,7 @@ export class LLMService {
                                     const errorMessage = `Error: invalid JSON arguments for tool "${toolBuffer.name}". Please retry with valid JSON.`
                                     request.messages.push({
                                         role: 'tool',
-                                        tool_call_id: `${toolBuffer.name}_${randomUUID()}`,
+                                        tool_call_id: callIds[callIndex]!,
                                         content: errorMessage,
                                     })
                                     appendFragment(errorMessage, 'tool_response_text')
@@ -531,6 +560,9 @@ export class LLMService {
 
                 if (message.thinking) {
                     assistantMessage.thinking = message.thinking
+                }
+                if (message.tool_calls?.length) {
+                    assistantMessage.tool_calls = message.tool_calls
                 }
 
                 messages.push(assistantMessage)

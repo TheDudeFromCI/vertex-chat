@@ -82,7 +82,7 @@ a:hover {
 
 #context-panel {
     height: calc(100% - 10px);
-    min-width: 25%;
+    min-width: 300px;
 }
 
 #participants {
@@ -104,4 +104,20 @@ a:hover {
     width: 100%;
     flex: 1;
     min-height: 0;
+}
+
+th {
+    border: 1px solid #323644;
+    text-align: center;
+    padding: 8px;
+}
+
+td {
+    border: 1px solid #323644;
+    text-align: center;
+    padding: 8px;
+}
+
+table {
+    border-collapse: collapse;
 }

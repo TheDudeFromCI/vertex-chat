@@ -176,6 +176,13 @@ export interface ChatCompletionMessageAssistant {
     role: 'assistant'
     thinking: string | null
     content: string
+    tool_calls?: ChatCompletionAssistantToolCall[]
+}
+
+export interface ChatCompletionAssistantToolCall {
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
 }
 
 export interface ChatCompletionToolCall {

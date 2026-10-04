@@ -344,3 +344,63 @@ test('chatCompletion rethrows aborts without retrying', async (t) => {
     await assert.rejects(service.chatCompletion(request(), undefined, controller.signal), { name: 'AbortError' })
     assert.equal(calls, 1)
 })
+
+const sse = (...chunks: unknown[]) =>
+    new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', { status: 200 })
+
+test('chatCompletion keeps pre-tool thinking and text in the follow-up request', async () => {
+    const payloads: any[] = []
+    const streams = [
+        sse(
+            { choices: [{ delta: { reasoning_content: 'I should check the time.' } }] },
+            { choices: [{ delta: { content: 'Let me look.' } }] },
+            {
+                choices: [
+                    {
+                        delta: { tool_calls: [{ index: 0, function: { name: 'get_time', arguments: '{"tz":"UTC"}' } }] },
+                    },
+                ],
+            },
+            { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+        ),
+        sse({ choices: [{ delta: { content: 'It is noon.' }, finish_reason: 'stop' }] }),
+    ]
+    const connection: LLMConnection = {
+        listModels: async () => ['test-model'],
+        createChatCompletion: async (payload) => {
+            payloads.push(structuredClone(payload))
+            return streams.shift()!
+        },
+        countInputTokens: async () => 1,
+    }
+    const service = new LLMService(connection, { model: 'test-model' })
+    service.registerTool({
+        name: 'get_time',
+        description: 'time',
+        params: [],
+        needsPermission: false,
+        execute: async () => 'noon',
+    })
+
+    const result = await service.chatCompletion({
+        messages: [{ role: 'user', content: 'What time is it?' }],
+        toolContext: { conversationId: null, agentId: null },
+    })
+
+    assert.equal(payloads.length, 2)
+    const followUp = payloads[1].messages
+    assert.equal(followUp.length, 3)
+    assert.equal(followUp[1].role, 'assistant')
+    assert.equal(followUp[1].thinking, 'I should check the time.')
+    assert.equal(followUp[1].content, 'Let me look.')
+    assert.equal(followUp[1].tool_calls.length, 1)
+    assert.equal(followUp[1].tool_calls[0].function.name, 'get_time')
+    assert.equal(followUp[1].tool_calls[0].function.arguments, '{"tz":"UTC"}')
+    assert.equal(followUp[2].role, 'tool')
+    assert.equal(followUp[2].tool_call_id, followUp[1].tool_calls[0].id)
+
+    assert.deepEqual(
+        result.map((b) => b.type),
+        ['thinking', 'text', 'tool_call', 'tool_response_text', 'text'],
+    )
+})

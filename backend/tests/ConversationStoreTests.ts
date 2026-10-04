@@ -5,7 +5,7 @@ import { default as Database } from 'better-sqlite3'
 import { ConversationStore } from '../src/services/ConversationStore.js'
 import { generateUuid } from '../src/Utils.js'
 
-test('ConversationStore should create, retrieve, and delete conversations', () => {
+test('ConversationStore should create, retrieve, and delete conversations', async (t) => {
     const db = new Database(':memory:')
     const conversationStore = new ConversationStore(db)
 
@@ -16,7 +16,7 @@ test('ConversationStore should create, retrieve, and delete conversations', () =
     const conversation = conversationStore.createConversation(workspace.id, 'Test Conversation')
 
     // Retrieve the conversation
-    test('Retrieving a conversation should return the correct data', () => {
+    await t.test('Retrieving a conversation should return the correct data', () => {
         const retrievedConversation = conversationStore.getConversation(conversation.id)
         assert.strictEqual(retrievedConversation!.id, conversation.id)
         assert.strictEqual(retrievedConversation!.name, 'Test Conversation')
@@ -24,13 +24,13 @@ test('ConversationStore should create, retrieve, and delete conversations', () =
     })
 
     // Delete the conversation
-    test('Deleting a conversation should remove it from the store', () => {
+    await t.test('Deleting a conversation should remove it from the store', () => {
         const result = conversationStore.deleteConversation(conversation.id)
         assert.strictEqual(result, true)
     })
 
     // Attempt to retrieve the deleted conversation
-    test('Retrieving a deleted conversation should return null', () => {
+    await t.test('Retrieving a deleted conversation should return null', () => {
         const deletedConversation = conversationStore.getConversation(conversation.id)
         assert.strictEqual(deletedConversation, null)
     })

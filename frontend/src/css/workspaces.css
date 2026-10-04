@@ -1,6 +1,6 @@
 #workspaces {
     height: calc(100% - 10px);
-    min-width: 25%;
+    min-width: 300px;
 }
 
 .workspaces-header {

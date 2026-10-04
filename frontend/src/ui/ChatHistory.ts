@@ -24,7 +24,7 @@ const GENERATE_SYMBOL = new URL('../../icons/generate.png', import.meta.url).hre
 const CLOSE_SYMBOL = new URL('../../icons/close.png', import.meta.url).href
 const ATTACH_SYMBOL = new URL('../../icons/plus.png', import.meta.url).href
 const TEXT_FILE_SYMBOL = new URL('../../icons/text.png', import.meta.url).href
-const md = new MarkdownIt({ typographer: true })
+const md = new MarkdownIt({ typographer: true, breaks: true })
 
 type MessageSectionKind = 'thinking' | 'tool_call' | 'tool_response_json' | 'tool_response_text' | 'tool_response_md'
 
@@ -61,6 +61,11 @@ export class InputBox {
         input.setAttribute('contenteditable', 'true')
         input.id = 'chat-input-field'
         this.input = input
+        input.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+            event.preventDefault()
+            this.sendButton?.click()
+        })
         div.appendChild(input)
 
         const attachButton = document.createElement('button')
@@ -110,7 +115,7 @@ export class InputBox {
                 return
             }
 
-            const messageText = input.textContent?.trim() ?? ''
+            const messageText = input.innerText.trim()
             if (!messageText && this.attachments.length === 0) return
 
             const messageContent: MessageContent = []

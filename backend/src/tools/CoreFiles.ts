@@ -51,7 +51,7 @@ export function buildCoreFileTools(coreFileStore: CoreFileStore) {
     const writeCoreFile: Tool = {
         name: 'write_core_file',
         description:
-            'Replaces the entire content of one of your core files. Changes to root files will update your prompt.',
+            'Creates or replaces the content of one of your core files. Changes to certain root files will update your prompt.',
         params: [fileParam, contentParam],
         needsPermission: false,
         execute: async ({ file, content }, { agentId }) => {
@@ -65,7 +65,7 @@ export function buildCoreFileTools(coreFileStore: CoreFileStore) {
 
     const appendCoreFile: Tool = {
         name: 'append_core_file',
-        description: 'Appends text to one of your core files. Changes to root files will update your prompt.',
+        description: 'Appends text to one of your core files. Changes to certain root files will update your prompt.',
         params: [fileParam, contentParam],
         needsPermission: false,
         execute: async ({ file, content }, { agentId }) => {
@@ -81,7 +81,7 @@ export function buildCoreFileTools(coreFileStore: CoreFileStore) {
 
     const deleteCoreFile: Tool = {
         name: 'delete_core_file',
-        description: 'Deletes one of your core files. Cannot delete root files.',
+        description: 'Deletes one of your standard core files. Cannot delete root files.',
         params: [fileParam],
         needsPermission: false,
         execute: async ({ file }, { agentId }) => {

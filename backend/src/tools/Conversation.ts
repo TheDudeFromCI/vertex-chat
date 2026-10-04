@@ -14,7 +14,7 @@ export function buildConversationTools(conversationStore: ConversationStore, per
                 required: true,
             },
         ],
-        needsPermission: true,
+        needsPermission: false,
         execute: async ({ new_name }, { conversationId }, callback) => {
             if (!conversationId) {
                 return 'You must have a valid conversation ID to rename the conversation. You are in an external environment.'

@@ -249,7 +249,14 @@ export class App {
             await this.chatHistory.updateMessage(messagePlaceholder.id, generated)
             this.enqueueAutoResponse(conversationId, agentId)
         } catch (error) {
-            await this.deleteMessage(messagePlaceholder.id)
+            const partial = task.controller.signal.aborted
+                ? this.chatHistory.getMessageContent(messagePlaceholder.id)
+                : null
+            if (partial && partial.length > 0) {
+                await updateMessage(messagePlaceholder.id, partial)
+            } else {
+                await this.deleteMessage(messagePlaceholder.id)
+            }
             throw error
         } finally {
             await this.persistContextTokens(conversationId)
@@ -289,7 +296,12 @@ export class App {
             await this.chatHistory.updateMessage(messageId, generated)
             this.enqueueAutoResponse(conversationId, agentId)
         } catch (error) {
-            await this.chatHistory.updateMessage(messageId, previous)
+            const partial = task.controller.signal.aborted ? this.chatHistory.getMessageContent(messageId) : null
+            if (partial && partial.length > 0) {
+                await updateMessage(messageId, partial)
+            } else {
+                await this.chatHistory.updateMessage(messageId, previous)
+            }
             throw error
         } finally {
             await this.persistContextTokens(conversationId)
