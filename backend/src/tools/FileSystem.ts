@@ -62,9 +62,46 @@ function resolveRequestedPath(allowedDirectories: string[], requestedPath: strin
     return resolveWithinAllowedDirectories(allowedDirectories, resolve(trimmedPath))
 }
 
-async function listDirectoryContents(directoryPath: string): Promise<string[]> {
+interface DirectoryEntry {
+    name: string
+    contents: DirectoryEntry[]
+}
+
+async function listDirectoryContents(
+    directoryPath: string,
+    recursive: boolean,
+    includeHidden: boolean,
+    filter?: RegExp,
+): Promise<DirectoryEntry> {
     const entries = await readdir(directoryPath, { withFileTypes: true })
-    return entries.map((entry) => entry.name).sort()
+
+    const result: DirectoryEntry = {
+        name: `${basename(directoryPath)}/`,
+        contents: (
+            await Promise.all(
+                entries
+                    .filter((file) => includeHidden || !file.name.startsWith('.'))
+                    .map(async (file): Promise<DirectoryEntry | null> => {
+                        if (file.isDirectory() && recursive) {
+                            return await listDirectoryContents(
+                                resolve(directoryPath, file.name),
+                                recursive,
+                                includeHidden,
+                                filter,
+                            )
+                        }
+                        if (!filter || filter.test(file.name)) {
+                            return { name: file.name, contents: [] }
+                        }
+                        return null
+                    }),
+            )
+        )
+            .filter((entry): entry is DirectoryEntry => entry !== null)
+            .sort((a, b) => a.name.localeCompare(b.name)),
+    }
+
+    return result
 }
 
 export function buildFileTools(allowedDirectories: string[]) {
@@ -90,12 +127,48 @@ export function buildFileTools(allowedDirectories: string[]) {
                     'Relative or absolute path to the directory to list. Use "." for the first allowed directory.',
                 required: true,
             },
+            {
+                name: 'recursive',
+                type: 'boolean',
+                description: 'Whether to list directory contents recursively. Defaults to false.',
+                required: false,
+            },
+            {
+                name: 'includeHidden',
+                type: 'boolean',
+                description: 'Whether to include hidden files in the listing. Defaults to false.',
+                required: false,
+            },
+            {
+                name: 'filter',
+                type: 'string',
+                description: 'Regex filter for files in the directory listing.',
+                required: false,
+            },
         ],
         needsPermission: false,
-        execute: async ({ path }) => {
+        execute: async ({ path, recursive, includeHidden, filter }) => {
+            if (typeof path !== 'string') return "'path' must be a string."
+            if (recursive !== undefined && typeof recursive !== 'boolean') return "'recursive' must be a boolean."
+            if (includeHidden !== undefined && typeof includeHidden !== 'boolean')
+                return "'includeHidden' must be a boolean."
+            if (filter !== undefined && typeof filter !== 'string') return "'filter' must be a string."
+
+            let filterRegex: RegExp | undefined
+            try {
+                filterRegex = filter ? new RegExp(filter) : undefined
+            } catch (error) {
+                return "'filter' must be a valid regular expression."
+            }
+
             const directoryPath = resolveRequestedPath(allowedDirectories, String(path ?? '.'))
-            const entries = await listDirectoryContents(directoryPath)
-            return JSON.stringify({ path: directoryPath, entries })
+            let entries = await listDirectoryContents(
+                directoryPath,
+                recursive ?? false,
+                includeHidden ?? false,
+                filterRegex,
+            )
+            return JSON.stringify(entries)
         },
     }
 
