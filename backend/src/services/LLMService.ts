@@ -130,6 +130,8 @@ export class LLMService {
             }
         }
 
+        const allowAllTools = process.env['ALLOW_ALL_TOOLS'] === 'true'
+
         let parseFailures = 0
         let abandon = false
 
@@ -242,10 +244,20 @@ export class LLMService {
                             })),
                         })
 
-                        for (const [callIndex, toolBuffer] of completedCalls.entries()) {
+                        // Calls run concurrently; their results are applied in request order once all settle.
+                        const runCall = async (toolBuffer: ToolBuffer, callIndex: number): Promise<() => void> => {
+                            const ops: Array<() => void> = []
+                            const pushMessage = (message: (typeof request.messages)[number]) =>
+                                ops.push(() => void request.messages.push(message))
+                            const addFragment = (fragment: string, type: MessageContentBlockType) =>
+                                ops.push(() => appendFragment(fragment, type))
+                            const addResponse = (block: MessageContent[number]) =>
+                                ops.push(() => void response.push(block))
                             try {
                                 const argsJson = JSON.parse(toolBuffer.args)
-                                parseFailures = 0
+                                ops.push(() => {
+                                    parseFailures = 0
+                                })
                                 const toolName = toolBuffer.name
                                 const toolCallId = callIds[callIndex]!
                                 appendFragment(JSON.stringify({ tool: toolName, args: argsJson }, null, 2), 'tool_call')
@@ -256,7 +268,7 @@ export class LLMService {
                                         throw new Error(`Tool "${toolName}" not found.`)
                                     }
 
-                                    if (tool.needsPermission) {
+                                    if (tool.needsPermission && !allowAllTools) {
                                         const permissionRequest: ToolPermissionRequest = {
                                             type: 'tool_permission_request',
                                             requestId: randomUUID(),
@@ -269,13 +281,13 @@ export class LLMService {
                                         const allowed = await this.requestPermission(permissionRequest, signal)
                                         if (!allowed) {
                                             const deniedMessage = `Permission denied by user for tool "${toolName}".`
-                                            request.messages.push({
+                                            pushMessage({
                                                 role: 'tool',
                                                 tool_call_id: toolCallId,
                                                 content: deniedMessage,
                                             })
-                                            appendFragment(deniedMessage, 'tool_response_text')
-                                            continue
+                                            addFragment(deniedMessage, 'tool_response_text')
+                                            return () => ops.forEach((op) => op())
                                         }
                                     }
 
@@ -323,66 +335,72 @@ export class LLMService {
                                             })
                                         }
 
-                                        request.messages.push({
+                                        pushMessage({
                                             role: 'tool',
                                             tool_call_id: toolCallId,
                                             content: toolMessageContent,
                                         })
                                         if (parsedToolResult.type === 'markdown' || parsedToolResult.type === 'text') {
-                                            appendFragment(
+                                            addFragment(
                                                 parsedToolResult.content,
                                                 parsedToolResult.type === 'markdown'
                                                     ? 'tool_response_md'
                                                     : 'tool_response_text',
                                             )
                                         } else {
-                                            appendFragment(
+                                            addFragment(
                                                 `Tool result: ${parsedToolResult.name ?? 'response'}`,
                                                 'tool_response_text',
                                             )
                                         }
                                         if (parsedToolResult.type === 'image') {
-                                            response.push({
+                                            addResponse({
                                                 type: 'image',
                                                 content: parsedToolResult.content,
                                                 name: parsedToolResult.name ?? 'image',
                                             })
                                         }
                                     } else {
-                                        request.messages.push({
+                                        pushMessage({
                                             role: 'tool',
                                             tool_call_id: toolCallId,
                                             content: toolResult,
                                         })
-                                        appendFragment(toolResult, this.classifyToolOutput(toolResult))
+                                        addFragment(toolResult, this.classifyToolOutput(toolResult))
                                     }
                                 } catch (error) {
                                     console.error('Failed to execute tool call:', error)
                                     const errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-                                    request.messages.push({
+                                    pushMessage({
                                         role: 'tool',
                                         tool_call_id: toolCallId,
                                         content: errorMessage,
                                     })
-                                    appendFragment(errorMessage, 'tool_response_text')
+                                    addFragment(errorMessage, 'tool_response_text')
                                 }
                             } catch (error) {
                                 console.error('Failed to parse tool arguments JSON:', error)
-                                parseFailures++
-                                if (parseFailures <= MAX_TOOL_PARSE_FAILURES) {
-                                    // Tell the model so it can retry with valid JSON.
-                                    const errorMessage = `Error: invalid JSON arguments for tool "${toolBuffer.name}". Please retry with valid JSON.`
-                                    request.messages.push({
-                                        role: 'tool',
-                                        tool_call_id: callIds[callIndex]!,
-                                        content: errorMessage,
-                                    })
-                                    appendFragment(errorMessage, 'tool_response_text')
-                                } else {
-                                    abandon = true
-                                }
+                                ops.push(() => {
+                                    parseFailures++
+                                    if (parseFailures <= MAX_TOOL_PARSE_FAILURES) {
+                                        // Tell the model so it can retry with valid JSON.
+                                        const errorMessage = `Error: invalid JSON arguments for tool "${toolBuffer.name}". Please retry with valid JSON.`
+                                        request.messages.push({
+                                            role: 'tool',
+                                            tool_call_id: callIds[callIndex]!,
+                                            content: errorMessage,
+                                        })
+                                        appendFragment(errorMessage, 'tool_response_text')
+                                    } else {
+                                        abandon = true
+                                    }
+                                })
                             }
+                            return () => ops.forEach((op) => op())
                         }
+
+                        const flushes = await Promise.all(completedCalls.map(runCall))
+                        for (const flush of flushes) flush()
 
                         toolBuffers = []
                         if (abandon) break outerLoop

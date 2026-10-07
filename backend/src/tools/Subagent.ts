@@ -29,11 +29,21 @@ export function buildSubagentTool(
                 description: 'The username of the agent that should handle the prompt.',
                 required: true,
             },
+            {
+                name: 'conversation_name',
+                type: 'string',
+                description: 'The name of the conversation to create with the target agent.',
+                required: false,
+            },
         ],
         needsPermission: false,
-        execute: async ({ prompt, agent_username }, { agentId }, callback) => {
+        execute: async ({ prompt, agent_username, conversation_name }, { agentId }, callback) => {
             if (!agentId) return 'Error: Unable to determine the calling agent. You are in an external environment.'
             if (typeof prompt !== 'string' || !prompt.trim()) return 'Error: "prompt" must be a non-empty string.'
+            if (typeof conversation_name !== 'undefined' && typeof conversation_name !== 'string') {
+                return 'Error: "conversation_name" must be a non-empty string if provided.'
+            }
+
             if (typeof agent_username !== 'string' || !agent_username.trim()) {
                 return 'Error: "agent_username" must be a non-empty string.'
             }
@@ -58,10 +68,12 @@ export function buildSubagentTool(
             }
 
             const trimmed = prompt.trim()
-            const name =
-                trimmed.length > MAX_CONVERSATION_NAME_LENGTH
-                    ? `${trimmed.slice(0, MAX_CONVERSATION_NAME_LENGTH - 1)}…`
-                    : trimmed
+            const name = conversation_name?.trim().length
+                ? conversation_name.trim()
+                : trimmed.length > MAX_CONVERSATION_NAME_LENGTH
+                  ? `${trimmed.slice(0, MAX_CONVERSATION_NAME_LENGTH - 1)}…`
+                  : trimmed
+
             const conversation = conversationStore.createConversation(workspace.id, name)
             conversationStore.updateConversationParticipants(conversation.id, [caller.id, target.id])
             callback?.({
