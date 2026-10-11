@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express'
 import { LLMService } from '../services/LLMService.js'
 import timeTool from '../tools/Time.js'
+import { loadMcpTools } from '../services/McpService.js'
 import { buildFileTools, parseAllowedDirectories } from '../tools/FileSystem.js'
 import type { ChatCompletionRequest, StreamedLLMEvent } from 'vertex-common'
 import { buildConversationTools } from '../tools/Conversation.js'
@@ -62,17 +63,21 @@ export default async function register(
     })
 
     // Register Tools
-    const allowedDirectories = parseAllowedDirectories(process.env['DIRECTORIES'])
-    const fileTools = buildFileTools(allowedDirectories)
     llmService.registerTool(timeTool)
-    llmService.registerTool(fileTools.baseDirectories)
-    llmService.registerTool(fileTools.listDirectory)
-    llmService.registerTool(fileTools.readFile)
-    llmService.registerTool(fileTools.createFile)
-    llmService.registerTool(fileTools.updateFile)
-    llmService.registerTool(fileTools.deleteFile)
-    llmService.registerTool(fileTools.createFolder)
-    llmService.registerTool(fileTools.renameFile)
+
+    const enableFileTools = process.env['ENABLE_FILE_TOOLS'] === 'true'
+    if (enableFileTools) {
+        const allowedDirectories = parseAllowedDirectories(process.env['DIRECTORIES'])
+        const fileTools = buildFileTools(allowedDirectories)
+        llmService.registerTool(fileTools.baseDirectories)
+        llmService.registerTool(fileTools.listDirectory)
+        llmService.registerTool(fileTools.readFile)
+        llmService.registerTool(fileTools.createFile)
+        llmService.registerTool(fileTools.updateFile)
+        llmService.registerTool(fileTools.deleteFile)
+        llmService.registerTool(fileTools.createFolder)
+        llmService.registerTool(fileTools.renameFile)
+    }
 
     const conversationTools = buildConversationTools(conversationStore, personaStore)
     llmService.registerTool(conversationTools.renameConversation)
@@ -89,6 +94,10 @@ export default async function register(
 
     const subagentTool = buildSubagentTool(llmService, conversationStore, personaStore)
     llmService.registerTool(subagentTool)
+
+    for (const tool of await loadMcpTools(process.env['MCP_SERVERS_FILE'])) {
+        llmService.registerTool(tool)
+    }
 
     app.post('/api/llm/chat', async (req: Request, res: Response) => {
         const body = req.body as ChatCompletionRequest

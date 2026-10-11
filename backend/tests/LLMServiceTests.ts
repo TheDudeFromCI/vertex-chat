@@ -357,7 +357,9 @@ test('chatCompletion keeps pre-tool thinking and text in the follow-up request',
             {
                 choices: [
                     {
-                        delta: { tool_calls: [{ index: 0, function: { name: 'get_time', arguments: '{"tz":"UTC"}' } }] },
+                        delta: {
+                            tool_calls: [{ index: 0, function: { name: 'get_time', arguments: '{"tz":"UTC"}' } }],
+                        },
                     },
                 ],
             },
@@ -403,4 +405,130 @@ test('chatCompletion keeps pre-tool thinking and text in the follow-up request',
         result.map((b) => b.type),
         ['thinking', 'text', 'tool_call', 'tool_response_text', 'text'],
     )
+})
+
+const setAllowAll = (t: TestContext, value: string | undefined) => {
+    const original = process.env['ALLOW_ALL_TOOLS']
+    if (value === undefined) delete process.env['ALLOW_ALL_TOOLS']
+    else process.env['ALLOW_ALL_TOOLS'] = value
+    t.after(() => {
+        if (original === undefined) delete process.env['ALLOW_ALL_TOOLS']
+        else process.env['ALLOW_ALL_TOOLS'] = original
+    })
+}
+
+const permissionService = (needsPermission: boolean) => {
+    let calls = 0
+    const service = makeService(async () => {
+        calls++
+        return calls === 1 ? sseJson([toolChunk('guarded', '{}')]) : sseJson([textChunk('done')])
+    })
+    const executed: unknown[] = []
+    service.registerTool({
+        name: 'guarded',
+        description: 'guarded',
+        params: [],
+        needsPermission,
+        execute: async (args) => {
+            executed.push(args)
+            return 'ran'
+        },
+    })
+    return { service, executed }
+}
+
+test('tool needing permission runs when the handler allows it', async (t) => {
+    quiet(t)
+    setAllowAll(t, undefined)
+    const { service, executed } = permissionService(true)
+    const requests: any[] = []
+    service.setToolPermissionHandler(async (req) => {
+        requests.push(req)
+        return true
+    })
+
+    const result = await service.chatCompletion(request())
+
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].toolName, 'guarded')
+    assert.equal(requests[0].type, 'tool_permission_request')
+    assert.equal(executed.length, 1)
+    assert.ok(result.some((b) => b.type === 'tool_response_text' && b.content === 'ran'))
+})
+
+test('tool needing permission is not run when the handler denies it', async (t) => {
+    quiet(t)
+    setAllowAll(t, undefined)
+    const { service, executed } = permissionService(true)
+    service.setToolPermissionHandler(async () => false)
+    const req = request()
+
+    await service.chatCompletion(req)
+
+    assert.equal(executed.length, 0)
+    const toolMessage = req.messages.find((m) => m.role === 'tool') as any
+    assert.match(toolMessage.content, /Permission denied by user for tool "guarded"/)
+})
+
+test('tool needing permission reports an error when no handler is configured', async (t) => {
+    quiet(t)
+    setAllowAll(t, undefined)
+    const { service, executed } = permissionService(true)
+    const req = request()
+
+    await service.chatCompletion(req)
+
+    assert.equal(executed.length, 0)
+    const toolMessage = req.messages.find((m) => m.role === 'tool') as any
+    assert.match(toolMessage.content, /Permission handler is not configured/)
+})
+
+test('tool not needing permission never asks the handler', async (t) => {
+    quiet(t)
+    setAllowAll(t, undefined)
+    const { service, executed } = permissionService(false)
+    let asked = 0
+    service.setToolPermissionHandler(async () => {
+        asked++
+        return false
+    })
+
+    await service.chatCompletion(request())
+
+    assert.equal(asked, 0)
+    assert.equal(executed.length, 1)
+})
+
+test('ALLOW_ALL_TOOLS skips the permission prompt', async (t) => {
+    quiet(t)
+    setAllowAll(t, 'true')
+    const { service, executed } = permissionService(true)
+    let asked = 0
+    service.setToolPermissionHandler(async () => {
+        asked++
+        return false
+    })
+
+    await service.chatCompletion(request())
+
+    assert.equal(asked, 0)
+    assert.equal(executed.length, 1)
+})
+
+test('permission request is forwarded to the stream callback and the abort signal reaches the handler', async (t) => {
+    quiet(t)
+    setAllowAll(t, undefined)
+    const { service } = permissionService(true)
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    service.setToolPermissionHandler(async (_req, signal) => {
+        receivedSignal = signal
+        return true
+    })
+    const events: any[] = []
+
+    await service.chatCompletion(request(), (e) => events.push(e), controller.signal)
+
+    assert.equal(receivedSignal, controller.signal)
+    assert.ok(events.some((e) => e.type === 'tool_permission_request' && e.toolName === 'guarded'))
 })

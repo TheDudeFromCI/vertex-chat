@@ -31,6 +31,8 @@ export interface ToolParam {
     type: string
     description: string
     required: boolean
+    /** Full JSON schema for the param; overrides `type` when set. */
+    schema?: Record<string, unknown>
 }
 
 export type ChatStreamCallback = (response: StreamedLLMEvent) => void
@@ -639,7 +641,7 @@ export class LLMService {
                     type: 'object',
                     required: tool.params.filter((param) => param.required).map((param) => param.name),
                     properties: tool.params.reduce((acc: Record<string, any>, param) => {
-                        acc[param.name] = {
+                        acc[param.name] = param.schema ?? {
                             type: param.type,
                             description: param.description,
                         }
