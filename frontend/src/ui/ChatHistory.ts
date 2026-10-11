@@ -11,6 +11,7 @@ import type {
 
 import type { App } from '../App.js'
 import { submitToolPermissionDecision } from '../api/ChatGenerationAPI'
+import { alertToolPermissionRequest } from '../impl/PermissionAlert'
 import { fetchConversation } from '../api/ConversationsAPI'
 import { ContextIndicator } from './ContextIndicator.js'
 
@@ -636,6 +637,7 @@ export class ChatMessage {
         }
 
         this.permissionRequestRows.set(request.requestId, row)
+        alertToolPermissionRequest(request.toolName)
     }
 
     private buildImageBlock(content: string, name: string): HTMLDivElement {
