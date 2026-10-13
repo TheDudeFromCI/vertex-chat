@@ -64,7 +64,8 @@ function resolveRequestedPath(allowedDirectories: string[], requestedPath: strin
 
 interface DirectoryEntry {
     name: string
-    contents: DirectoryEntry[]
+    contents?: DirectoryEntry[]
+    numTruncated?: number
 }
 
 async function listDirectoryContents(
@@ -76,7 +77,7 @@ async function listDirectoryContents(
     const entries = await readdir(directoryPath, { withFileTypes: true })
 
     const result: DirectoryEntry = {
-        name: `${basename(directoryPath)}/`,
+        name: basename(directoryPath),
         contents: (
             await Promise.all(
                 entries
@@ -91,7 +92,7 @@ async function listDirectoryContents(
                             )
                         }
                         if (!filter || filter.test(file.name)) {
-                            return { name: file.name, contents: [] }
+                            return { name: file.name }
                         }
                         return null
                     }),
@@ -99,6 +100,38 @@ async function listDirectoryContents(
         )
             .filter((entry): entry is DirectoryEntry => entry !== null)
             .sort((a, b) => a.name.localeCompare(b.name)),
+    }
+
+    return result
+}
+
+function truncateLargeDirectories(entry: DirectoryEntry, maxEntries: number = 100): DirectoryEntry {
+    if (entry.contents && entry.contents.length > maxEntries) {
+        entry.numTruncated = entry.contents.length - maxEntries
+        entry.contents = entry.contents.slice(0, maxEntries)
+    }
+    if (entry.contents) {
+        entry.contents = entry.contents.map((child) => truncateLargeDirectories(child, maxEntries))
+    }
+    return entry
+}
+
+function directoriesToString(entry: DirectoryEntry, indent: number = 0): string {
+    let result = `${' '.repeat(indent)}`
+
+    if (entry.contents != null) {
+        result += `>${entry.name}/`
+    } else {
+        result += ` ${entry.name}`
+    }
+
+    if (entry.contents) {
+        for (const child of entry.contents) {
+            result += `\n${directoriesToString(child, indent + 2)}`
+            if (entry.numTruncated) {
+                result += ` ... (and ${entry.numTruncated} more)`
+            }
+        }
     }
 
     return result
@@ -168,7 +201,9 @@ export function buildFileTools(allowedDirectories: string[]) {
                 includeHidden ?? false,
                 filterRegex,
             )
-            return JSON.stringify(entries)
+
+            truncateLargeDirectories(entries, 60)
+            return directoriesToString(entries)
         },
     }
 
